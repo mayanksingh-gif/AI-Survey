@@ -29,6 +29,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body.status === "string") data.status = body.status;
   if (typeof body.title === "string") data.title = body.title;
   if (typeof body.experienceMode === "string") data.experienceMode = body.experienceMode;
+  if (typeof body.adaptiveFollowUpMode === "string") data.adaptiveFollowUpMode = body.adaptiveFollowUpMode;
+  if (typeof body.interactionLevel === "string") data.interactionLevel = body.interactionLevel;
+  if (typeof body.interactionLevelRationale === "string") {
+    data.interactionLevelRationale = body.interactionLevelRationale;
+  }
   if (Array.isArray(body.followUps)) data.followUps = JSON.stringify(body.followUps);
   if (body.researchPlan) data.researchPlan = JSON.stringify(body.researchPlan);
 

@@ -56,6 +56,15 @@ export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
           const id = await ensureResponse();
           await publicApi.saveAnswer(slug, id, { questionPath: path, complete: true });
         }}
+        onCheckAdaptiveFollowUp={async (questionId, answer) => {
+          const id = await ensureResponse();
+          const result = await publicApi.checkAdaptiveFollowUp(slug, id, questionId, answer);
+          return result.shouldAsk ? { shouldAsk: true, followUp: result.followUp } : { shouldAsk: false };
+        }}
+        onAnswerAdaptiveFollowUp={async (followUpId, answer) => {
+          const id = await ensureResponse();
+          await publicApi.answerAdaptiveFollowUp(slug, id, followUpId, answer);
+        }}
       />
     </div>
   );

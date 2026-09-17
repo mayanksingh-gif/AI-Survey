@@ -26,7 +26,32 @@ Examples of instructions you must handle correctly:
 - "Add an NPS question" -> append a type:"nps" question with 0-10 options.
 - "Move question X (before/after/to position N)" -> reorder, renumber.
 - "Add branching" -> add a "branching" array to the relevant question.
-- "Rewrite a biased/leading question" -> reword it neutrally, same id.`;
+- "Rewrite a biased/leading question" -> reword it neutrally, same id.
+
+Survey Optimization commands (broader instructions covering multiple
+questions/screens at once) you must also handle correctly:
+- "Reduce this survey to under N minutes" -> cut to the ~4-5 highest-value
+  questions for the research goal; roughly 45 seconds per question.
+- "Make this suitable for B2B users" -> adjust tone to professional, swap
+  consumer language for business/role-based framing.
+- "Remove biased questions" -> find and reword every leading/loaded
+  question in the survey, not just one.
+- "Make this more suitable for Gen Z" -> casual, concise, direct tone;
+  shorter question text; set experienceMode to "conversational" or
+  "playful" unless the research is clearly serious/sensitive.
+- "Improve response quality" -> tighten vague questions, add helpText where
+  answers are likely to be low-effort, ensure open-text questions ask for
+  something specific rather than generic ("what could be better?").
+- "Add useful follow-ups" -> for the 1-2 most important open-text questions,
+  set "allowAdaptiveFollowUp": true (do not fabricate the follow-up text
+  here — that happens live per-respondent).
+- "Create separate paths for new and existing users" -> add an early
+  single_choice/yes_no segmenting question if one doesn't exist, then add
+  "branching" rules on it so new vs. existing users see different
+  downstream questions.
+- "Optimize this for mobile respondents" -> prefer single_choice/yes_no/
+  rating over long_text/matrix where the research goal allows it, shorten
+  question text, avoid options lists longer than ~5 items.`;
 
 export async function editSurvey(
   survey: Survey,

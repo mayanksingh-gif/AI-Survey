@@ -2,7 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
-import type { FollowUpQA, ResearchPlan, Survey } from "@/lib/survey/types";
+import type {
+  AdaptiveFollowUpMode,
+  FollowUpQA,
+  InteractionLevel,
+  ResearchPlan,
+  Survey,
+} from "@/lib/survey/types";
 
 export interface StudyDetail {
   id: string;
@@ -17,6 +23,10 @@ export interface StudyDetail {
   responseCount: number;
   surveyVersion: number;
   analysisCache: string | null;
+  adaptiveFollowUpMode: AdaptiveFollowUpMode;
+  interactionLevel: InteractionLevel;
+  interactionLevelRationale: string | null;
+  parentInsightId: string | null;
 }
 
 interface StudyContextValue {

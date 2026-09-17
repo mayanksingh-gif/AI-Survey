@@ -26,9 +26,10 @@ export default function PreviewPage() {
   }
 
   async function ensurePreviewResponse() {
-    if (responseId) return;
+    if (responseId) return responseId;
     const { responseId: id } = await publicApi.startResponse(study!.slug, true);
     setResponseId(id);
+    return id;
   }
 
   return (
@@ -76,7 +77,9 @@ export default function PreviewPage() {
         >
           <SurveyRunner
             survey={study.survey}
-            onStart={ensurePreviewResponse}
+            onStart={async () => {
+              await ensurePreviewResponse();
+            }}
             onAnswer={async (questionId, value) => {
               await ensurePreviewResponse();
               if (responseId) {
@@ -86,6 +89,16 @@ export default function PreviewPage() {
             onComplete={async (path) => {
               if (responseId) {
                 await publicApi.saveAnswer(study.slug, responseId, { questionPath: path, complete: true });
+              }
+            }}
+            onCheckAdaptiveFollowUp={async (questionId, answer) => {
+              const id = await ensurePreviewResponse();
+              const result = await publicApi.checkAdaptiveFollowUp(study.slug, id!, questionId, answer);
+              return result.shouldAsk ? { shouldAsk: true, followUp: result.followUp } : { shouldAsk: false };
+            }}
+            onAnswerAdaptiveFollowUp={async (followUpId, answer) => {
+              if (responseId) {
+                await publicApi.answerAdaptiveFollowUp(study.slug, responseId, followUpId, answer);
               }
             }}
           />

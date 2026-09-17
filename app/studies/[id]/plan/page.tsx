@@ -7,6 +7,7 @@ import { useStudy } from "@/lib/study-context";
 import { GoalCard } from "@/components/study/plan/goal-card";
 import { FollowUpFlow } from "@/components/study/plan/follow-up-flow";
 import { ResearchPlanCard } from "@/components/study/plan/research-plan-card";
+import { AdaptiveFollowUpSetting } from "@/components/study/plan/adaptive-followup-setting";
 import { DesignerJokes } from "@/components/brand/designer-jokes";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,6 +79,7 @@ export default function PlanPage() {
       {hasPlan && study.researchPlan && (
         <>
           <ResearchPlanCard plan={study.researchPlan} />
+          <AdaptiveFollowUpSetting studyId={study.id} value={study.adaptiveFollowUpMode} />
           {generatingSurvey && (
             <div className="rounded-xl border border-border bg-card p-6">
               <DesignerJokes />

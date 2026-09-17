@@ -1,7 +1,19 @@
 // Thin fetch wrappers for client components. Every AI-backed call can take
 // a while on a local 4B model, so callers should show loading state — these
 // helpers just centralize the request/error shape.
-import type { AnalysisResult, FollowUpQA, ResearchPlan, ReviewIssue, Survey } from "@/lib/survey/types";
+import type {
+  AdaptiveFollowUpMode,
+  AnalysisResult,
+  FollowUpQA,
+  Insight,
+  InteractionLevel,
+  QualityCategory,
+  ResearchPlan,
+  ResearchSuggestionItem,
+  ResponseQualityResult,
+  ReviewIssue,
+  Survey,
+} from "@/lib/survey/types";
 
 export class ApiError extends Error {}
 
@@ -52,6 +64,10 @@ export const api = {
         responseCount: number;
         surveyVersion: number;
         analysisCache: string | null;
+        adaptiveFollowUpMode: AdaptiveFollowUpMode;
+        interactionLevel: InteractionLevel;
+        interactionLevelRationale: string | null;
+        parentInsightId: string | null;
       };
     }>(`/api/studies/${id}`),
 
@@ -98,6 +114,28 @@ export const api = {
   publishStudy: (id: string) =>
     request<{ study: StudySummary; publicUrl: string }>(`/api/studies/${id}/publish`, {
       method: "POST",
+    }),
+
+  // --- V2: Smarter AI — Research Suggestions -----------------------------
+
+  getSuggestions: (id: string) =>
+    request<{ suggestions: ResearchSuggestionItem[] }>(`/api/studies/${id}/suggestions`),
+
+  refreshSuggestions: (id: string) =>
+    request<{ suggestions: ResearchSuggestionItem[] }>(`/api/studies/${id}/suggestions`, {
+      method: "POST",
+    }),
+
+  applySuggestion: (id: string, suggestionId: string) =>
+    request<{ survey: Survey }>(`/api/studies/${id}/suggestions/apply`, {
+      method: "POST",
+      body: JSON.stringify({ suggestionId }),
+    }),
+
+  dismissSuggestion: (id: string, suggestionId: string) =>
+    request(`/api/studies/${id}/suggestions/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ suggestionId }),
     }),
 
   getResults: (id: string) =>
@@ -156,5 +194,20 @@ export const publicApi = {
     request(`/api/public/${slug}/responses/${responseId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
+    }),
+
+  checkAdaptiveFollowUp: (slug: string, responseId: string, baseQuestionId: string, baseAnswer: string) =>
+    request<
+      | { shouldAsk: false; reason: string }
+      | { shouldAsk: true; followUp: { id: string; question: string } }
+    >(`/api/public/${slug}/responses/${responseId}/adaptive-followup`, {
+      method: "POST",
+      body: JSON.stringify({ baseQuestionId, baseAnswer }),
+    }),
+
+  answerAdaptiveFollowUp: (slug: string, responseId: string, followUpId: string, answer: string) =>
+    request(`/api/public/${slug}/responses/${responseId}/adaptive-followup`, {
+      method: "PATCH",
+      body: JSON.stringify({ followUpId, answer }),
     }),
 };

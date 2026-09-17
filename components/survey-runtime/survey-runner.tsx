@@ -4,12 +4,19 @@ import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import { AiLabel } from "@/components/brand/signal-glyph";
 import { QuestionInput, type AnswerValue } from "@/components/survey-runtime/question-input";
 import { resolveNextQuestionId } from "@/lib/survey/branching";
 import { cn } from "@/lib/utils";
 import type { Survey } from "@/lib/survey/types";
 
-export type RunnerStage = "welcome" | "question" | "thanks";
+export type RunnerStage = "welcome" | "question" | "adaptive-followup" | "thanks";
+
+export interface AdaptiveFollowUpCheckResult {
+  shouldAsk: boolean;
+  followUp?: { id: string; question: string };
+}
 
 interface Props {
   survey: Survey;
@@ -20,6 +27,15 @@ interface Props {
   onComplete?: (questionPath: string[]) => void | Promise<void>;
   /** Called when the respondent clicks Start. */
   onStart?: () => void | Promise<void>;
+  /** V2 adaptive follow-ups: ask the agent whether to probe further after an
+   * open-text answer. Omit to disable (e.g. builder live-preview with no
+   * real response to attach follow-ups to). */
+  onCheckAdaptiveFollowUp?: (
+    questionId: string,
+    answer: string,
+  ) => Promise<AdaptiveFollowUpCheckResult>;
+  /** Persist the respondent's answer to a shown adaptive follow-up. */
+  onAnswerAdaptiveFollowUp?: (followUpId: string, answer: string) => void | Promise<void>;
   className?: string;
 }
 
@@ -29,7 +45,15 @@ const CARD_STYLES: Record<Survey["experienceMode"], string> = {
   playful: "rounded-3xl border-2 border-border bg-card shadow-md",
 };
 
-export function SurveyRunner({ survey, onAnswer, onComplete, onStart, className }: Props) {
+export function SurveyRunner({
+  survey,
+  onAnswer,
+  onComplete,
+  onStart,
+  onCheckAdaptiveFollowUp,
+  onAnswerAdaptiveFollowUp,
+  className,
+}: Props) {
   const [stage, setStage] = useState<RunnerStage>("welcome");
   const [currentId, setCurrentId] = useState<string | null>(
     () => [...survey.questions].sort((a, b) => a.order - b.order)[0]?.id ?? null,
@@ -37,6 +61,14 @@ export function SurveyRunner({ survey, onAnswer, onComplete, onStart, className 
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>({});
   const [path, setPath] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [checkingFollowUp, setCheckingFollowUp] = useState(false);
+  const [activeFollowUp, setActiveFollowUp] = useState<{ id: string; question: string } | null>(
+    null,
+  );
+  const [followUpAnswer, setFollowUpAnswer] = useState("");
+  // Remembers which base question a follow-up chain belongs to, so we can
+  // keep re-checking (up to the study's mode cap) after each answer.
+  const [followUpBaseQuestionId, setFollowUpBaseQuestionId] = useState<string | null>(null);
 
   const sortedQuestions = useMemo(
     () => [...survey.questions].sort((a, b) => a.order - b.order),
@@ -50,6 +82,29 @@ export function SurveyRunner({ survey, onAnswer, onComplete, onStart, className 
 
   const playful = survey.experienceMode === "playful";
   const conversational = survey.experienceMode === "conversational";
+
+  const adaptiveEligible = (q: typeof current, value: AnswerValue) =>
+    !!onCheckAdaptiveFollowUp &&
+    q &&
+    (q.type === "short_text" || q.type === "long_text") &&
+    q.allowAdaptiveFollowUp !== false &&
+    survey.adaptiveFollowUpMode &&
+    survey.adaptiveFollowUpMode !== "off" &&
+    typeof value === "string" &&
+    value.trim().length > 0;
+
+  async function advanceAfterQuestion(question: NonNullable<typeof current>, value: AnswerValue) {
+    const nextPath = [...path, question.id];
+    setPath(nextPath);
+    const nextId = resolveNextQuestionId(survey, question, value);
+    if (nextId) {
+      setCurrentId(nextId);
+      setStage("question");
+    } else {
+      await onComplete?.(nextPath);
+      setStage("thanks");
+    }
+  }
 
   async function handleStart() {
     await onStart?.();
@@ -65,15 +120,61 @@ export function SurveyRunner({ survey, onAnswer, onComplete, onStart, className 
     setSaving(true);
     try {
       await onAnswer?.(current.id, value);
-      const nextPath = [...path, current.id];
-      setPath(nextPath);
 
-      const nextId = resolveNextQuestionId(survey, current, value);
-      if (nextId) {
-        setCurrentId(nextId);
-      } else {
-        await onComplete?.(nextPath);
-        setStage("thanks");
+      if (adaptiveEligible(current, value)) {
+        setCheckingFollowUp(true);
+        try {
+          const result = await onCheckAdaptiveFollowUp!(current.id, value as string);
+          if (result.shouldAsk && result.followUp) {
+            setFollowUpBaseQuestionId(current.id);
+            setActiveFollowUp(result.followUp);
+            setFollowUpAnswer("");
+            setStage("adaptive-followup");
+            return;
+          }
+        } finally {
+          setCheckingFollowUp(false);
+        }
+      }
+
+      await advanceAfterQuestion(current, value);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleFollowUpNext() {
+    if (!activeFollowUp || !followUpBaseQuestionId) return;
+    const answerText = followUpAnswer.trim();
+    setSaving(true);
+    try {
+      await onAnswerAdaptiveFollowUp?.(activeFollowUp.id, answerText);
+
+      // Keep probing (bounded server-side by the study's mode) as long as
+      // there's a meaningful answer to react to.
+      if (answerText && onCheckAdaptiveFollowUp) {
+        setCheckingFollowUp(true);
+        try {
+          const baseAnswer = answers[followUpBaseQuestionId];
+          const result = await onCheckAdaptiveFollowUp(
+            followUpBaseQuestionId,
+            typeof baseAnswer === "string" ? baseAnswer : answerText,
+          );
+          if (result.shouldAsk && result.followUp) {
+            setActiveFollowUp(result.followUp);
+            setFollowUpAnswer("");
+            return;
+          }
+        } finally {
+          setCheckingFollowUp(false);
+        }
+      }
+
+      const baseQuestion = sortedQuestions.find((q) => q.id === followUpBaseQuestionId);
+      setActiveFollowUp(null);
+      setFollowUpBaseQuestionId(null);
+      if (baseQuestion) {
+        await advanceAfterQuestion(baseQuestion, answers[baseQuestion.id] ?? null);
       }
     } finally {
       setSaving(false);
@@ -85,6 +186,7 @@ export function SurveyRunner({ survey, onAnswer, onComplete, onStart, className 
     const prevId = path[path.length - 1];
     setPath(path.slice(0, -1));
     setCurrentId(prevId);
+    setStage("question");
   }
 
   const value = current ? answers[current.id] ?? null : null;
@@ -142,12 +244,63 @@ export function SurveyRunner({ survey, onAnswer, onComplete, onStart, className 
               <ArrowLeft className="size-4" />
               Back
             </Button>
-            <Button onClick={handleNext} disabled={!canContinue || saving} className="gap-1.5">
-              {saving ? (
+            <Button onClick={handleNext} disabled={!canContinue || saving || checkingFollowUp} className="gap-1.5">
+              {saving || checkingFollowUp ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <>
                   {questionIndex === sortedQuestions.length - 1 ? "Finish" : "Next"}
+                  <ArrowRight className="size-4" />
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {stage === "adaptive-followup" && activeFollowUp && (
+        <div>
+          <div className="mb-4">
+            <Progress value={progressPct} className="h-1" />
+            <p className="mt-1.5 text-[11px] font-mono text-muted-foreground">
+              {questionIndex + 1} / {sortedQuestions.length} · quick follow-up
+            </p>
+          </div>
+          <div className={cn("p-6", CARD_STYLES[survey.experienceMode])}>
+            <AiLabel className="mb-3">Quick follow-up</AiLabel>
+            <p className={cn("font-medium leading-snug", conversational || playful ? "text-xl" : "text-base")}>
+              {activeFollowUp.question}
+            </p>
+            <div className="mt-5">
+              <Textarea
+                autoFocus
+                value={followUpAnswer}
+                onChange={(e) => setFollowUpAnswer(e.target.value)}
+                placeholder="Type your answer…"
+                rows={3}
+                className="resize-none"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                const baseQuestion = sortedQuestions.find((q) => q.id === followUpBaseQuestionId);
+                setActiveFollowUp(null);
+                setFollowUpBaseQuestionId(null);
+                if (baseQuestion) await advanceAfterQuestion(baseQuestion, answers[baseQuestion.id] ?? null);
+              }}
+            >
+              Skip
+            </Button>
+            <Button onClick={handleFollowUpNext} disabled={saving || checkingFollowUp} className="gap-1.5">
+              {saving || checkingFollowUp ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <>
+                  Continue
                   <ArrowRight className="size-4" />
                 </>
               )}

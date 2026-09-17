@@ -7,10 +7,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import type { ExperienceMode, SurveyQuestion } from "@/lib/survey/types";
+import type { AnswerValue, ExperienceMode, SurveyQuestion } from "@/lib/survey/types";
 import { GripVertical } from "lucide-react";
 
-export type AnswerValue = string | string[] | number | null;
+// Re-exported for existing importers (survey-runner, branching, etc.) —
+// AnswerValue's canonical definition now lives in lib/survey/types.ts since
+// AI services and stats need it too, not just this component.
+export type { AnswerValue };
 
 interface Props {
   question: SurveyQuestion;
