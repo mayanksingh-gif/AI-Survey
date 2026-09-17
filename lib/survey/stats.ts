@@ -6,11 +6,22 @@ import { questionFromRow } from "@/lib/survey/db-mapping";
 import { chartKindForQuestionType } from "@/lib/survey/charts";
 import type { SurveyQuestion } from "@/lib/survey/types";
 
+export interface ResponseTrendPoint {
+  /** ISO date (daily) or ISO week/month start, depending on requested bucket */
+  bucket: string;
+  count: number;
+  completedCount: number;
+}
+
 export interface DashboardStats {
   totalResponses: number;
   completedResponses: number;
   completionRate: number; // 0-1
   avgCompletionTimeSeconds: number | null;
+  /** V2: Much Better Analytics — Research Overview */
+  medianCompletionTimeSeconds: number | null;
+  abandonmentRate: number; // 0-1, 1 - completionRate (started but never finished)
+  avgTimePerQuestionSeconds: number | null;
 }
 
 export function computeDashboardStats(responses: ResponseRow[]): DashboardStats {
@@ -19,16 +30,114 @@ export function computeDashboardStats(responses: ResponseRow[]): DashboardStats 
   const durations = completed
     .filter((r) => r.completedAt)
     .map((r) => (r.completedAt!.getTime() - r.startedAt.getTime()) / 1000)
-    .filter((s) => s >= 0);
+    .filter((s) => s >= 0)
+    .sort((a, b) => a - b);
+
+  const avgCompletionTimeSeconds = durations.length
+    ? durations.reduce((a, b) => a + b, 0) / durations.length
+    : null;
+
+  const avgQuestionsAnswered = completed.length
+    ? completed.reduce((sum, r) => sum + (JSON.parse(r.questionPath || "[]") as string[]).length, 0) /
+      completed.length
+    : 0;
 
   return {
     totalResponses: real.length,
     completedResponses: completed.length,
     completionRate: real.length ? completed.length / real.length : 0,
-    avgCompletionTimeSeconds: durations.length
-      ? durations.reduce((a, b) => a + b, 0) / durations.length
-      : null,
+    avgCompletionTimeSeconds,
+    medianCompletionTimeSeconds: durations.length ? median(durations) : null,
+    abandonmentRate: real.length ? 1 - completed.length / real.length : 0,
+    avgTimePerQuestionSeconds:
+      avgCompletionTimeSeconds != null && avgQuestionsAnswered > 0
+        ? avgCompletionTimeSeconds / avgQuestionsAnswered
+        : null,
   };
+}
+
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** V2: Response Trends — bucket non-preview responses by day/week/month for
+ * recurring/longitudinal studies. Buckets are UTC-based ISO date strings so
+ * results are stable regardless of server timezone. */
+export function computeResponseTrend(
+  responses: ResponseRow[],
+  granularity: "daily" | "weekly" | "monthly",
+): ResponseTrendPoint[] {
+  const real = responses.filter((r) => !r.isPreview);
+  const buckets = new Map<string, { count: number; completedCount: number }>();
+
+  for (const r of real) {
+    const key = bucketKey(r.startedAt, granularity);
+    const entry = buckets.get(key) ?? { count: 0, completedCount: 0 };
+    entry.count += 1;
+    if (r.status === "completed") entry.completedCount += 1;
+    buckets.set(key, entry);
+  }
+
+  return Array.from(buckets.entries())
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([bucket, v]) => ({ bucket, ...v }));
+}
+
+function bucketKey(date: Date, granularity: "daily" | "weekly" | "monthly"): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  if (granularity === "daily") return d.toISOString().slice(0, 10);
+  if (granularity === "monthly") return d.toISOString().slice(0, 7);
+  // weekly: Monday-anchored ISO week start
+  const day = d.getUTCDay() || 7;
+  if (day !== 1) d.setUTCDate(d.getUTCDate() - (day - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+export interface FunnelStage {
+  questionId: string | "start" | "completed";
+  label: string;
+  reachedCount: number;
+}
+
+/** V2: Survey Funnel — how many (non-preview) responses reached each
+ * question, in order, ending with how many fully completed. "Reached" a
+ * question means it appears in that response's questionPath OR it has an
+ * Answer row for it (covers a respondent who reached but skipped an
+ * optional question without answering). */
+export function computeFunnel(
+  questionRows: Question[],
+  responses: ResponseRow[],
+  answers: Answer[],
+): FunnelStage[] {
+  const real = responses.filter((r) => !r.isPreview);
+  const sortedQuestions = questionRows.slice().sort((a, b) => a.order - b.order);
+  const answeredQuestionIdsByResponse = new Map<string, Set<string>>();
+  for (const a of answers) {
+    const set = answeredQuestionIdsByResponse.get(a.responseId) ?? new Set<string>();
+    set.add(a.questionId);
+    answeredQuestionIdsByResponse.set(a.responseId, set);
+  }
+
+  const stages: FunnelStage[] = [{ questionId: "start", label: "Started", reachedCount: real.length }];
+
+  for (const q of sortedQuestions) {
+    let reached = 0;
+    for (const r of real) {
+      const path: string[] = JSON.parse(r.questionPath || "[]");
+      const answeredSet = answeredQuestionIdsByResponse.get(r.id);
+      if (path.includes(q.id) || answeredSet?.has(q.id)) reached++;
+    }
+    stages.push({ questionId: q.id, label: q.text, reachedCount: reached });
+  }
+
+  stages.push({
+    questionId: "completed",
+    label: "Completed",
+    reachedCount: real.filter((r) => r.status === "completed").length,
+  });
+
+  return stages;
 }
 
 export interface OptionCount {
@@ -51,6 +160,44 @@ export interface QuestionStats {
   matrixRowCounts?: { row: string; optionCounts: OptionCount[] }[];
   /** pairwise_comparison: win count per candidate item */
   pairwiseWinCounts?: OptionCount[];
+  /** V2 Time Analysis: median seconds spent on this question, approximated
+   * as the gap between this and the previous answer's createdAt within the
+   * same response. First-answered question in a response has no prior
+   * answer to diff against, so it's excluded from this question's sample —
+   * an approximation, not a precise per-question timer. */
+  medianTimeSeconds?: number | null;
+}
+
+/** V2 Time Analysis: for each response, sort its answers by createdAt and
+ * diff consecutive timestamps — the gap before answering question N
+ * approximates time spent on question N. Returns the median gap per
+ * question across all responses (median resists a few very slow/fast
+ * outliers skewing the "slowest/fastest question" comparison). */
+function computeTimePerQuestion(answers: Answer[]): Map<string, number> {
+  const byResponse = new Map<string, Answer[]>();
+  for (const a of answers) {
+    const list = byResponse.get(a.responseId) ?? [];
+    list.push(a);
+    byResponse.set(a.responseId, list);
+  }
+
+  const gapsByQuestion = new Map<string, number[]>();
+  for (const list of byResponse.values()) {
+    const sorted = list.slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    for (let i = 1; i < sorted.length; i++) {
+      const gapSeconds = (sorted[i].createdAt.getTime() - sorted[i - 1].createdAt.getTime()) / 1000;
+      if (gapSeconds < 0 || gapSeconds > 600) continue; // skip negative/implausible gaps (e.g. resumed session)
+      const list2 = gapsByQuestion.get(sorted[i].questionId) ?? [];
+      list2.push(gapSeconds);
+      gapsByQuestion.set(sorted[i].questionId, list2);
+    }
+  }
+
+  const result = new Map<string, number>();
+  for (const [questionId, gaps] of gapsByQuestion) {
+    result.set(questionId, median(gaps.sort((a, b) => a - b)));
+  }
+  return result;
 }
 
 /**
@@ -68,6 +215,8 @@ export function computeQuestionStats(
     list.push(a);
     answersByQuestion.set(a.questionId, list);
   }
+
+  const timeSecondsByQuestion = computeTimePerQuestion(answers);
 
   return questionRows
     .slice()
@@ -87,6 +236,7 @@ export function computeQuestionStats(
         responseCount: qAnswers.length,
         skipCount: Math.max(0, totalNonPreviewResponses - qAnswers.length),
         rawAnswers,
+        medianTimeSeconds: timeSecondsByQuestion.get(row.id) ?? null,
       };
 
       if (question.type === "short_text" || question.type === "long_text") {

@@ -109,12 +109,23 @@ export function AiAnalysisPanel({ studyId, hasResponses }: { studyId: string; ha
           <div className="space-y-3">
             {analysis.themes.map((t, i) => (
               <div key={i} className={`rounded-lg border p-3 ${SENTIMENT_STYLES[t.sentiment]}`}>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-foreground">{t.theme}</p>
-                  <Badge variant="outline" className="text-[10px] font-mono">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-sm font-medium text-foreground">{t.theme}</p>
+                    {t.kind && t.kind !== "general" && (
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase">
+                        {t.kind.replace(/_/g, " ")}
+                      </Badge>
+                    )}
+                  </div>
+                  <Badge variant="outline" className="text-[10px] font-mono shrink-0">
                     {t.mentionCount} mentions
+                    {t.percentageOfRelevant != null && ` · ${Math.round(t.percentageOfRelevant * 100)}%`}
                   </Badge>
                 </div>
+                {t.subthemes && t.subthemes.length > 0 && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">{t.subthemes.join(" · ")}</p>
+                )}
                 {t.sampleQuotes.length > 0 && (
                   <p className="mt-1.5 text-xs text-foreground/80 italic">“{t.sampleQuotes[0]}”</p>
                 )}

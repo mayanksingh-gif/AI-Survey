@@ -15,6 +15,8 @@ import type {
   Survey,
 } from "@/lib/survey/types";
 import type { DashboardStats, QuestionStats } from "@/lib/survey/stats";
+import type { SegmentFilter } from "@/lib/survey/segments";
+import type { CrossQuestionResult } from "@/lib/survey/cross-question";
 
 export class ApiError extends Error {}
 
@@ -152,6 +154,40 @@ export const api = {
     ),
 
   exportCsvUrl: (id: string) => `/api/studies/${id}/export`,
+
+  // --- V2: Much Better Analytics ------------------------------------------
+
+  getFunnel: (id: string) =>
+    request<{ funnel: { questionId: string; label: string; reachedCount: number }[] }>(
+      `/api/studies/${id}/funnel`,
+    ),
+
+  getTrends: (id: string, granularity: "daily" | "weekly" | "monthly" = "daily") =>
+    request<{
+      trend: { bucket: string; count: number; completedCount: number }[];
+      granularity: string;
+    }>(`/api/studies/${id}/trends?granularity=${granularity}`),
+
+  compareSegments: (id: string, filterA: SegmentFilter, filterB: SegmentFilter) =>
+    request<{
+      segmentA: { dashboardStats: DashboardStats; questionStats: QuestionStats[] };
+      segmentB: { dashboardStats: DashboardStats; questionStats: QuestionStats[] };
+    }>(`/api/studies/${id}/segments/compare`, {
+      method: "POST",
+      body: JSON.stringify({ filterA, filterB }),
+    }),
+
+  crossQuestion: (id: string, filterQuestionId: string, filterValue: string, targetQuestionId: string) =>
+    request<{ result: CrossQuestionResult }>(`/api/studies/${id}/cross-question`, {
+      method: "POST",
+      body: JSON.stringify({ filterQuestionId, filterValue, targetQuestionId }),
+    }),
+
+  askResearch: (id: string, question: string, history: { role: "user" | "assistant"; content: string }[]) =>
+    request<{ answer: string; evidence: string[]; relatedQuestionIds: string[] } | { error: string }>(
+      `/api/studies/${id}/ask`,
+      { method: "POST", body: JSON.stringify({ question, history }) },
+    ),
 };
 
 // --- Public (respondent-facing), no auth ---------------------------------
