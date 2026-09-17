@@ -7,6 +7,7 @@ import { useStudy } from "@/lib/study-context";
 import { GoalCard } from "@/components/study/plan/goal-card";
 import { FollowUpFlow } from "@/components/study/plan/follow-up-flow";
 import { ResearchPlanCard } from "@/components/study/plan/research-plan-card";
+import { DesignerJokes } from "@/components/brand/designer-jokes";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api-client";
@@ -65,15 +66,23 @@ export default function PlanPage() {
       )}
 
       {stage === "generating-plan" && (
-        <div className="rounded-xl border border-border bg-card p-6 flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Copilot is designing a research plan…
+        <div className="rounded-xl border border-border bg-card p-6 space-y-3">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Copilot is designing a research plan…
+          </div>
+          <DesignerJokes />
         </div>
       )}
 
       {hasPlan && study.researchPlan && (
         <>
           <ResearchPlanCard plan={study.researchPlan} />
+          {generatingSurvey && (
+            <div className="rounded-xl border border-border bg-card p-6">
+              <DesignerJokes />
+            </div>
+          )}
           <div className="flex justify-end">
             <Button size="lg" onClick={handleGenerateSurvey} disabled={generatingSurvey} className="gap-2">
               {generatingSurvey ? (

@@ -11,7 +11,9 @@ from the user. Apply the instruction precisely and return the FULL updated
 survey (not a diff) plus a one-sentence changeSummary describing what you
 changed. Preserve every question's "id" unless the instruction removes that
 question. Renumber "order" contiguously after any add/remove/move. Only use
-these question types: ${QUESTION_TYPES.join(", ")}. Keep unrelated
+these question types: ${QUESTION_TYPES.join(", ")}. A "slider" question must
+have EXACTLY 2 options representing [min, max] only — never one option per
+step; use "nps" or "rating" instead for a discrete scale. Keep unrelated
 questions/screens exactly as they were — do not rewrite things the
 instruction didn't ask about.
 

@@ -9,9 +9,12 @@ a title, a short welcome screen, a thank-you screen, and an ordered list of
 questions. Questions must be neutral, short, and easy to understand — never
 leading or double-barrelled. Use ONLY these question types: ${QUESTION_TYPES.join(
   ", ",
-)}. Every choice/rating/likert/nps/slider/ranking question must include
-appropriate "options" (e.g. rating 1-5 as options with numeric labels, NPS
-0-10, Likert with agreement labels). Mark questions optional only when
+)}. Every choice/rating/likert/nps/ranking question must include appropriate
+"options" (e.g. rating 1-5 as options with numeric labels, NPS 0-10, Likert
+with agreement labels). A "slider" question must have EXACTLY 2 options
+representing [min, max] only — e.g. [{"label":"0","value":"0"},{"label":"100","value":"100"}]
+— never one option per step; if you want a 0-10 discrete scale, use "nps" or
+"rating" instead of "slider". Mark questions optional only when
 skipping them is genuinely reasonable. Add simple branching only where the
 plan's survey type calls for it (e.g. "have you used X?" -> Yes/No branches).
 Assign each question a short unique id like "q1", "q2".`;

@@ -194,8 +194,12 @@ export function QuestionInput({ question, value, onChange, experienceMode }: Pro
     }
 
     case "slider": {
-      const min = Number(question.options[0]?.value ?? 0);
-      const max = Number(question.options[1]?.value ?? 100);
+      // Options may come as a 2-entry [min, max] range, or (if the model
+      // emitted a full enumerated scale, e.g. NPS-style 0..10) as N options —
+      // in either case the true bounds are the first and last option values.
+      const opts = question.options;
+      const min = Number(opts[0]?.value ?? 0);
+      const max = Number(opts[opts.length - 1]?.value ?? (opts.length ? min : 100));
       const current = typeof value === "number" ? value : Math.round((min + max) / 2);
       return (
         <div className="pt-2">

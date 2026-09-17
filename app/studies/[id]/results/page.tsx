@@ -47,6 +47,7 @@ export default function ResultsPage() {
           variant="outline"
           size="sm"
           className="gap-1.5"
+          nativeButton={false}
           render={<a href={api.exportCsvUrl(study.id)} download />}
         >
           <Download className="size-3.5" />

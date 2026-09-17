@@ -5,6 +5,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AiLabel } from "@/components/brand/signal-glyph";
+import { DesignerJokes } from "@/components/brand/designer-jokes";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import type { AnalysisResult } from "@/lib/survey/types";
@@ -54,9 +55,12 @@ export function AiAnalysisPanel({ studyId, hasResponses }: { studyId: string; ha
 
   if (loading && !analysis) {
     return (
-      <div className="rounded-xl border border-border bg-card p-6 flex items-center gap-3 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Copilot is analyzing responses…
+      <div className="rounded-xl border border-border bg-card p-6 space-y-3">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Copilot is analyzing responses…
+        </div>
+        <DesignerJokes />
       </div>
     );
   }

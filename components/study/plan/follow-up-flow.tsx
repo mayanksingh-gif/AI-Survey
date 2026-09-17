@@ -5,6 +5,7 @@ import { Loader2, ArrowRight } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { AiLabel } from "@/components/brand/signal-glyph";
+import { DesignerJokes } from "@/components/brand/designer-jokes";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
 import type { FollowUpQA } from "@/lib/survey/types";
@@ -34,9 +35,12 @@ export function FollowUpFlow({
 
   if (loadingQuestions) {
     return (
-      <div className="rounded-xl border border-border bg-card p-6 flex items-center gap-3 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Copilot is reading your goal and deciding what else it needs to know…
+      <div className="rounded-xl border border-border bg-card p-6 space-y-3">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Copilot is reading your goal and deciding what else it needs to know…
+        </div>
+        <DesignerJokes />
       </div>
     );
   }

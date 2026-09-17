@@ -5,6 +5,7 @@ import { ArrowUp, Loader2, Sparkles } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { AiLabel } from "@/components/brand/signal-glyph";
+import { DesignerJokes } from "@/components/brand/designer-jokes";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -78,9 +79,12 @@ export function AiChatPanel({
           </div>
         ))}
         {sending && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
-            <Loader2 className="size-3.5 animate-spin" />
-            Updating survey…
+          <div className="space-y-1.5 px-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" />
+              Updating survey…
+            </div>
+            <DesignerJokes className="text-xs" intervalMs={2600} />
           </div>
         )}
       </div>

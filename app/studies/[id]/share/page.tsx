@@ -88,6 +88,7 @@ export default function SharePage() {
             <Button
               variant="outline"
               size="sm"
+              nativeButton={false}
               render={<a href={publicPath} target="_blank" rel="noreferrer" />}
             >
               Open survey
