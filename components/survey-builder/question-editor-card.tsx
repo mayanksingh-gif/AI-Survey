@@ -19,14 +19,23 @@ interface Props {
   onMove: (direction: -1 | 1) => void;
 }
 
-const OPTION_TYPES = new Set(["single_choice", "multiple_choice"]);
-const BRANCHABLE_TYPES = new Set(["single_choice", "yes_no"]);
+const OPTION_TYPES = new Set([
+  "single_choice",
+  "multiple_choice",
+  "card_choice",
+  "emoji_scale",
+  "matrix",
+]);
+const BRANCHABLE_TYPES = new Set(["single_choice", "yes_no", "swipe_card", "card_choice"]);
+const MATRIX_ROWS_TYPES = new Set(["matrix"]);
+const CATEGORIZE_TYPES = new Set(["categorize"]);
+const PAIRWISE_TYPES = new Set(["pairwise_comparison"]);
 
 export function QuestionEditorCard({ question, index, total, allQuestions, onChange, onDelete, onMove }: Props) {
   const [expanded, setExpanded] = useState(false);
   const branchOptions =
-    question.type === "yes_no"
-      ? [{ label: "Yes", value: "yes" }, { label: "No", value: "no" }]
+    (question.type === "yes_no" || question.type === "swipe_card") && !question.options.length
+      ? [{ label: "No", value: "no" }, { label: "Yes", value: "yes" }]
       : question.options;
 
   return (
@@ -81,6 +90,49 @@ export function QuestionEditorCard({ question, index, total, allQuestions, onCha
                 />
               )}
 
+              {MATRIX_ROWS_TYPES.has(question.type) && (
+                <StringListEditor
+                  label="Rows"
+                  items={question.extraConfig?.matrixRows ?? []}
+                  placeholder="New row"
+                  onChange={(matrixRows) =>
+                    onChange({ ...question, extraConfig: { ...question.extraConfig, matrixRows } })
+                  }
+                />
+              )}
+
+              {CATEGORIZE_TYPES.has(question.type) && (
+                <>
+                  <StringListEditor
+                    label="Items to sort"
+                    items={question.extraConfig?.categorizeItems ?? []}
+                    placeholder="New item"
+                    onChange={(categorizeItems) =>
+                      onChange({ ...question, extraConfig: { ...question.extraConfig, categorizeItems } })
+                    }
+                  />
+                  <StringListEditor
+                    label="Categories"
+                    items={question.extraConfig?.categories ?? []}
+                    placeholder="New category"
+                    onChange={(categories) =>
+                      onChange({ ...question, extraConfig: { ...question.extraConfig, categories } })
+                    }
+                  />
+                </>
+              )}
+
+              {PAIRWISE_TYPES.has(question.type) && (
+                <StringListEditor
+                  label="Items to compare"
+                  items={question.extraConfig?.comparisonItems ?? []}
+                  placeholder="New item"
+                  onChange={(comparisonItems) =>
+                    onChange({ ...question, extraConfig: { ...question.extraConfig, comparisonItems } })
+                  }
+                />
+              )}
+
               {BRANCHABLE_TYPES.has(question.type) && (
                 <BranchingEditor
                   branching={question.branching ?? []}
@@ -105,6 +157,57 @@ export function QuestionEditorCard({ question, index, total, allQuestions, onCha
           <Trash2 className="size-3.5" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Generic editable list of plain strings — used for matrix rows,
+ * categorize items/categories, and pairwise comparison items, which are all
+ * just string[] in extraConfig rather than {label,value} option pairs. */
+function StringListEditor({
+  label,
+  items,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  items: string[];
+  placeholder: string;
+  onChange: (items: string[]) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">{label}</p>
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <Input
+            value={item}
+            onChange={(e) => {
+              const next = [...items];
+              next[i] = e.target.value;
+              onChange(next);
+            }}
+            className="h-8 text-sm"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 shrink-0 text-muted-foreground"
+            onClick={() => onChange(items.filter((_, idx) => idx !== i))}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs gap-1"
+        onClick={() => onChange([...items, ""])}
+      >
+        <Plus className="size-3" />
+        {placeholder}
+      </Button>
     </div>
   );
 }
