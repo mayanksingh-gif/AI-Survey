@@ -10,7 +10,9 @@ generator client {
 // ---------------------------------------------------------------------------
 // A Study is one research project: goal -> plan -> survey -> responses.
 // JSON-shaped fields are stored as String (SQLite has no native Json type)
-// and parsed/stringified at the lib/db boundary — see lib/db.ts helpers.
+// and parsed/stringified at the lib/db boundary — see lib/survey/db-mapping.ts.
+//
+// V2 additions are grouped and commented per feature area below.
 // ---------------------------------------------------------------------------
 model Study {
   id            String   @id @default(cuid())
@@ -31,11 +33,27 @@ model Study {
   analysisCache String?  // JSON: cached AnalysisResult, invalidated on new response
   analysisAt    DateTime?
 
+  // --- V2: Smarter AI -------------------------------------------------
+  adaptiveFollowUpMode String @default("off") // off | conservative | balanced | deep
+
+  // --- V2: Better Respondent Experience --------------------------------
+  interactionLevel         String  @default("light") // none | light | medium | high
+  interactionLevelRationale String? // AI's explanation for the recommended level
+
+  // --- V2: Insight -> Action --------------------------------------------
+  // Loose (non-FK) reference: this study was generated from an Insight
+  // belonging to some other study. Kept as a plain id, same pattern as
+  // branching's goTo question-id references — not enforced by a DB
+  // constraint, resolved at read time when needed.
+  parentInsightId String?
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   questions     Question[]
   responses     Response[]
+  suggestions   ResearchSuggestion[]
+  insights      Insight[]
 }
 
 model Question {
@@ -45,17 +63,26 @@ model Question {
 
   order         Int
   type          String   // single_choice | multiple_choice | yes_no | short_text |
-                          // long_text | rating | likert | nps | slider | ranking
+                          // long_text | rating | likert | nps | slider | ranking |
+                          // matrix | categorize | pairwise_comparison | swipe_card |
+                          // card_choice | emoji_scale  (see lib/survey/types.ts QUESTION_TYPES)
   text          String
   helpText      String?
-  options       String   @default("[]") // JSON: string[] or {label,value}[]
+  options       String   @default("[]") // JSON: QuestionOption[] (meaning varies by type — see types.ts)
   required      Boolean  @default(true)
   branchingRules String  @default("[]") // JSON: BranchingRule[]
+
+  // --- V2: Better Respondent Experience (matrix rows / categorize buckets) ---
+  extraConfig   String   @default("{}") // JSON: type-specific extras, e.g. { matrixRows, categories, allowMultiple, emojiSet }
+
+  // --- V2: Multimedia -----------------------------------------------------
+  allowMediaResponse Boolean @default(false) // respondent may answer with image/audio/video instead of/alongside text
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   answers       Answer[]
+  media         Media[]  // stimulus media shown WITH the question (images/video/audio)
 
   @@index([studyId, order])
 }
@@ -71,10 +98,15 @@ model Response {
 
   questionPath  String   @default("[]") // JSON: question ids in the order actually shown
 
+  // --- V2: Much Better Analytics (segmentation attributes) -----------------
+  deviceType    String?  // desktop | mobile | tablet | unknown — captured at start
+
   startedAt     DateTime @default(now())
   completedAt   DateTime?
 
   answers       Answer[]
+  adaptiveFollowUps AdaptiveFollowUp[]
+  quality       ResponseQuality?
 
   @@index([studyId])
 }
@@ -86,10 +118,136 @@ model Answer {
   questionId   String
   question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
-  value        String   // JSON: string | string[] | number | { rank: string[] } etc.
+  value        String   // JSON: AnswerValue — string | string[] | number | Record<string,string> |
+                         // Record<string,string[]> | MediaAnswerValue (see lib/survey/types.ts)
 
   createdAt    DateTime @default(now())
 
+  media        Media[]  // multimedia RESPONSE (respondent-uploaded image/audio/video)
+
   @@index([responseId])
   @@index([questionId])
+}
+
+// ---------------------------------------------------------------------------
+// V2: Smarter AI — Adaptive AI Follow-Ups
+// One row per AI-asked follow-up question during a live response, chained
+// off a base open-text question. Multiple rows per (responseId, baseQuestionId)
+// represent successive probes ("what specifically felt confusing?" -> "what
+// would have made that clearer?").
+// ---------------------------------------------------------------------------
+model AdaptiveFollowUp {
+  id             String   @id @default(cuid())
+  responseId     String
+  response       Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  baseQuestionId String   // the open-text Question this probe chain is attached to
+  order          Int      // position within this chain (0 = first follow-up)
+
+  question       String   // the AI-generated follow-up question text
+  answer         String?  // respondent's answer; null until answered
+
+  createdAt      DateTime @default(now())
+
+  @@index([responseId, baseQuestionId])
+}
+
+// ---------------------------------------------------------------------------
+// V2: Smarter AI — Research Suggestions
+// Persisted so the Plan/Build tabs don't recompute on every visit, and so
+// "applied"/"dismissed" state survives a refresh.
+// ---------------------------------------------------------------------------
+model ResearchSuggestion {
+  id               String   @id @default(cuid())
+  studyId          String
+  study            Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  category         String   // missing_objective | uncovered_question | low_value_question |
+                             // too_long | poor_sequencing | weak_options | biased_wording |
+                             // branching_opportunity | segment_recommendation |
+                             // sample_size_recommendation | experience_recommendation
+  title            String
+  description      String
+  suggestedQuestion String? // JSON: SurveyQuestion — present for "Add Suggested Question" actionable ones
+  status           String   @default("open") // open | applied | dismissed
+
+  createdAt        DateTime @default(now())
+
+  @@index([studyId, status])
+}
+
+// ---------------------------------------------------------------------------
+// V2: Insight -> Action
+// Data -> Finding -> Evidence -> Hypothesis -> Recommended Action -> Next
+// Research. Generated by the Insight Generator from the Evidence Engine's
+// grounded stats. "Create Follow-Up Study" spawns a new Study whose
+// parentInsightId points back here.
+// ---------------------------------------------------------------------------
+model Insight {
+  id                  String   @id @default(cuid())
+  studyId             String
+  study               Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  finding             String
+  evidence            String   // JSON: EvidenceItem[] — each grounded in real computed stats
+  hypothesis          String
+  recommendedAction   String
+  nextResearch        String
+
+  evidenceStrength       String // strong | moderate | early_signal | insufficient_data
+  evidenceStrengthReason String
+
+  relatedQuestionIds  String   @default("[]") // JSON: string[]
+  followUpStudyId     String?  // set once "Create Follow-Up Study" is clicked
+
+  createdAt           DateTime @default(now())
+
+  @@index([studyId])
+}
+
+// ---------------------------------------------------------------------------
+// V2: Respondent Quality Detection
+// One row per Response. Never causes deletion — purely advisory scoring +
+// flags that the Results dashboard can filter by.
+// ---------------------------------------------------------------------------
+model ResponseQuality {
+  id          String   @id @default(cuid())
+  responseId  String   @unique
+  response    Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+
+  score       Int      // 0-100
+  category    String   // high_quality | normal | needs_review | suspicious
+  flags       String   @default("[]") // JSON: { type, description, severity }[]
+
+  computedAt  DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// V2: Multimedia Research — storage abstraction
+// Provider-agnostic record; V1-of-V2 ships a "local" provider (files under
+// a storage dir outside the DB, served via an API route) so swapping to
+// S3/Cloudinary/Supabase later only touches lib/storage/*, not callers.
+// ---------------------------------------------------------------------------
+model Media {
+  id              String    @id @default(cuid())
+
+  // Exactly one of questionId (stimulus) / answerId (response) is set.
+  questionId      String?
+  question        Question? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answerId        String?
+  answer          Answer?   @relation(fields: [answerId], references: [id], onDelete: Cascade)
+
+  kind            String    // image | audio | video
+  storageProvider String    @default("local")
+  storageKey      String    // path/key within the provider
+  url             String    // servable URL
+  mimeType        String
+  sizeBytes       Int
+
+  transcript      String?   // Whisper output (audio/video)
+  aiAnalysis      String?   // JSON: { themes, sentiment, keyPoints, description } from vision/text analysis
+
+  createdAt       DateTime  @default(now())
+
+  @@index([questionId])
+  @@index([answerId])
 }

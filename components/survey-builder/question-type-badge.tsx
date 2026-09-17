@@ -12,6 +12,12 @@ const LABELS: Record<QuestionType, string> = {
   nps: "NPS",
   slider: "Slider",
   ranking: "Ranking",
+  matrix: "Matrix",
+  categorize: "Categorize",
+  pairwise_comparison: "Pairwise",
+  swipe_card: "Swipe",
+  card_choice: "Card choice",
+  emoji_scale: "Emoji scale",
 };
 
 export function QuestionTypeBadge({ type }: { type: QuestionType }) {

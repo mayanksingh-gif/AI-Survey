@@ -21,6 +21,8 @@ export function questionFromRow(row: Question): SurveyQuestion {
     options: JSON.parse(row.options) as QuestionOption[],
     required: row.required,
     branching: JSON.parse(row.branchingRules) as BranchingRule[],
+    extraConfig: row.extraConfig ? JSON.parse(row.extraConfig) : undefined,
+    allowMediaResponse: row.allowMediaResponse,
   };
 }
 
@@ -38,6 +40,9 @@ export function surveyFromStudy(study: Study, questions: Question[]): Survey {
       .sort((a, b) => a.order - b.order)
       .map(questionFromRow),
     experienceMode: study.experienceMode as Survey["experienceMode"],
+    interactionLevel: study.interactionLevel as Survey["interactionLevel"],
+    interactionLevelRationale: study.interactionLevelRationale ?? undefined,
+    adaptiveFollowUpMode: study.adaptiveFollowUpMode as Survey["adaptiveFollowUpMode"],
   };
 }
 

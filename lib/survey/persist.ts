@@ -21,6 +21,8 @@ export async function persistSurvey(studyId: string, survey: Survey, bumpVersion
           options: JSON.stringify(q.options ?? []),
           required: q.required ?? true,
           branchingRules: JSON.stringify(q.branching ?? []),
+          extraConfig: JSON.stringify(q.extraConfig ?? {}),
+          allowMediaResponse: q.allowMediaResponse ?? false,
         })),
       });
     }
@@ -33,6 +35,11 @@ export async function persistSurvey(studyId: string, survey: Survey, bumpVersion
         thankYouScreen: JSON.stringify(survey.thankYouScreen),
         experienceMode: survey.experienceMode,
         surveyVersion: bumpVersion ? study.surveyVersion + 1 : study.surveyVersion,
+        ...(survey.interactionLevel ? { interactionLevel: survey.interactionLevel } : {}),
+        ...(survey.interactionLevelRationale
+          ? { interactionLevelRationale: survey.interactionLevelRationale }
+          : {}),
+        ...(survey.adaptiveFollowUpMode ? { adaptiveFollowUpMode: survey.adaptiveFollowUpMode } : {}),
       },
     });
 
