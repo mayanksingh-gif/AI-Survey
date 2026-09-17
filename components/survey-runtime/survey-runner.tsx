@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { AiLabel } from "@/components/brand/signal-glyph";
 import { QuestionInput, type AnswerValue } from "@/components/survey-runtime/question-input";
+import { MediaResponseUpload } from "@/components/survey-runtime/media-response-upload";
 import { resolveNextQuestionId } from "@/lib/survey/branching";
 import { personalizeQuestion } from "@/lib/survey/personalization";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,11 @@ interface Props {
   ) => Promise<AdaptiveFollowUpCheckResult>;
   /** Persist the respondent's answer to a shown adaptive follow-up. */
   onAnswerAdaptiveFollowUp?: (followUpId: string, answer: string) => void | Promise<void>;
+  /** V2 multimedia: enables the "answer with a photo/recording" upload
+   * control on questions with allowMediaResponse. Both required together;
+   * omit to disable media responses entirely. */
+  studyId?: string;
+  responseId?: string | null;
   className?: string;
 }
 
@@ -53,6 +59,8 @@ export function SurveyRunner({
   onStart,
   onCheckAdaptiveFollowUp,
   onAnswerAdaptiveFollowUp,
+  studyId,
+  responseId,
   className,
 }: Props) {
   const [stage, setStage] = useState<RunnerStage>("welcome");
@@ -239,6 +247,9 @@ export function SurveyRunner({
             </div>
           </div>
           <div className={cn("p-6", CARD_STYLES[survey.experienceMode])}>
+            {current.stimulusMedia && current.stimulusMedia.length > 0 && (
+              <StimulusMedia media={current.stimulusMedia} />
+            )}
             <p className={cn("font-medium leading-snug", conversational || playful ? "text-xl" : "text-base")}>
               {current.text}
               {!current.required && (
@@ -256,6 +267,15 @@ export function SurveyRunner({
                 experienceMode={survey.experienceMode}
               />
             </div>
+            {current.allowMediaResponse && studyId && (
+              <MediaResponseUpload
+                studyId={studyId}
+                responseId={responseId ?? null}
+                questionId={current.id}
+                value={value}
+                onChange={(v) => setAnswers((prev) => ({ ...prev, [current.id]: v }))}
+              />
+            )}
           </div>
           <div className="mt-4 flex items-center justify-between">
             <Button variant="ghost" size="sm" onClick={handleBack} disabled={path.length === 0} className="gap-1">
@@ -400,6 +420,30 @@ function ConfettiBurst({ intensity }: { intensity: "medium" | "high" }) {
           }
         }
       `}</style>
+    </div>
+  );
+}
+
+/** V2 Multimedia: renders the image/video/audio a respondent views/listens
+ * to before answering. Multiple entries render as a simple stacked list —
+ * pairwise/concept-comparison layouts are handled by the question-type
+ * renderer itself (card_choice with imageUrl per option), not here; this
+ * is specifically for stimulus shown ABOVE the question. */
+function StimulusMedia({ media }: { media: NonNullable<Survey["questions"][number]["stimulusMedia"]> }) {
+  return (
+    <div className="mb-4 space-y-2">
+      {media.map((m) => {
+        if (m.kind === "image") {
+          // eslint-disable-next-line @next/next/no-img-element
+          return <img key={m.id} src={m.url} alt="" className="w-full rounded-lg border border-border" />;
+        }
+        if (m.kind === "video") {
+          return (
+            <video key={m.id} src={m.url} controls className="w-full rounded-lg border border-border" />
+          );
+        }
+        return <audio key={m.id} src={m.url} controls className="w-full" />;
+      })}
     </div>
   );
 }

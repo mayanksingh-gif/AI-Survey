@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Python venv for the local LLM sidecar — not part of the app.
+    ".venv-llm/**",
+    // Local media storage provider output.
+    ".media-storage/**",
   ]),
 ]);
 

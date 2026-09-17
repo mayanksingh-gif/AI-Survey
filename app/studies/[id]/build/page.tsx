@@ -95,12 +95,12 @@ export default function BuildPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <SurveyFlowPanel survey={survey} onSurveyChange={handleSurveyChange} />
+          <SurveyFlowPanel survey={survey} studyId={study.id} onSurveyChange={handleSurveyChange} />
         </div>
 
         <div className="flex flex-col gap-4 overflow-y-auto">
           <div className="rounded-xl border border-border bg-muted/30 p-6 flex-1 flex items-center justify-center">
-            <SurveyRunner survey={survey} />
+            <SurveyRunner survey={survey} studyId={study.id} />
           </div>
           <SuggestionsPanel studyId={study.id} onSurveyUpdated={handleAiUpdate} />
           <ReviewerPanel studyId={study.id} onFixApplied={handleAiUpdate} />

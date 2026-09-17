@@ -8,13 +8,17 @@ import type { Survey } from "@/lib/survey/types";
 export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
   const { slug } = use(props.params);
   const [survey, setSurvey] = useState<Survey | null>(null);
+  const [studyId, setStudyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [responseId, setResponseId] = useState<string | null>(null);
 
   useEffect(() => {
     publicApi
       .getSurvey(slug)
-      .then(({ survey }) => setSurvey(survey))
+      .then(({ survey, studyId }) => {
+        setSurvey(survey);
+        setStudyId(studyId);
+      })
       .catch(() => setError("This survey isn't available right now."));
   }, [slug]);
 
@@ -65,6 +69,8 @@ export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
           const id = await ensureResponse();
           await publicApi.answerAdaptiveFollowUp(slug, id, followUpId, answer);
         }}
+        studyId={studyId ?? undefined}
+        responseId={responseId}
       />
     </div>
   );

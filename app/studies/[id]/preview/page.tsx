@@ -101,6 +101,8 @@ export default function PreviewPage() {
                 await publicApi.answerAdaptiveFollowUp(study.slug, responseId, followUpId, answer);
               }
             }}
+            studyId={study.id}
+            responseId={responseId}
           />
         </div>
       </div>

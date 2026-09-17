@@ -7,9 +7,11 @@ import type { Survey, SurveyQuestion } from "@/lib/survey/types";
 
 export function SurveyFlowPanel({
   survey,
+  studyId,
   onSurveyChange,
 }: {
   survey: Survey;
+  studyId: string;
   onSurveyChange: (survey: Survey) => void;
 }) {
   const questions = [...survey.questions].sort((a, b) => a.order - b.order);
@@ -61,6 +63,7 @@ export function SurveyFlowPanel({
             index={i}
             total={questions.length}
             allQuestions={questions}
+            studyId={studyId}
             onChange={(next) => updateQuestion(i, next)}
             onDelete={() => deleteQuestion(i)}
             onMove={(dir) => moveQuestion(i, dir)}

@@ -1,19 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { ChevronDown, ChevronUp, GripVertical, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { QuestionTypeBadge } from "@/components/survey-builder/question-type-badge";
-import type { BranchingRule, SurveyQuestion } from "@/lib/survey/types";
+import type { BranchingRule, MediaRef, SurveyQuestion } from "@/lib/survey/types";
 
 interface Props {
   question: SurveyQuestion;
   index: number;
   total: number;
   allQuestions: SurveyQuestion[];
+  studyId: string;
   onChange: (next: SurveyQuestion) => void;
   onDelete: () => void;
   onMove: (direction: -1 | 1) => void;
@@ -31,7 +32,7 @@ const MATRIX_ROWS_TYPES = new Set(["matrix"]);
 const CATEGORIZE_TYPES = new Set(["categorize"]);
 const PAIRWISE_TYPES = new Set(["pairwise_comparison"]);
 
-export function QuestionEditorCard({ question, index, total, allQuestions, onChange, onDelete, onMove }: Props) {
+export function QuestionEditorCard({ question, index, total, allQuestions, studyId, onChange, onDelete, onMove }: Props) {
   const [expanded, setExpanded] = useState(false);
   const branchOptions =
     (question.type === "yes_no" || question.type === "swipe_card") && !question.options.length
@@ -142,12 +143,29 @@ export function QuestionEditorCard({ question, index, total, allQuestions, onCha
                 />
               )}
 
+              <StimulusMediaEditor
+                studyId={studyId}
+                questionId={question.id}
+                media={question.stimulusMedia ?? []}
+                onChange={(stimulusMedia) => onChange({ ...question, stimulusMedia })}
+              />
+
               <div className="flex items-center gap-2">
                 <Switch
                   checked={question.required}
                   onCheckedChange={(required) => onChange({ ...question, required })}
                 />
                 <span className="text-xs text-muted-foreground">Required</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={question.allowMediaResponse ?? false}
+                  onCheckedChange={(allowMediaResponse) => onChange({ ...question, allowMediaResponse })}
+                />
+                <span className="text-xs text-muted-foreground">
+                  Allow respondents to answer with a photo/recording
+                </span>
               </div>
             </div>
           )}
@@ -327,6 +345,84 @@ function BranchingEditor({
         <Plus className="size-3" />
         Add rule
       </Button>
+    </div>
+  );
+}
+
+/** V2 Multimedia: attach image/video/audio stimulus to a question — shown
+ * to the respondent above the question text (see StimulusMedia in
+ * survey-runner.tsx). */
+function StimulusMediaEditor({
+  studyId,
+  questionId,
+  media,
+  onChange,
+}: {
+  studyId: string;
+  questionId: string;
+  media: MediaRef[];
+  onChange: (media: MediaRef[]) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("questionId", questionId);
+      const res = await fetch(`/api/studies/${studyId}/media`, { method: "POST", body: form });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Upload failed");
+      const { media: created } = await res.json();
+      onChange([...media, { id: created.id, kind: created.kind, url: created.url, mimeType: created.mimeType }]);
+    } catch {
+      // Swallow — a failed stimulus upload just means nothing gets added;
+      // the builder toast layer is one level up and doesn't reach here.
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">
+        Stimulus media
+      </p>
+      {media.map((m) => (
+        <div key={m.id} className="flex items-center gap-2 text-xs">
+          <span className="capitalize">{m.kind}</span>
+          <span className="text-muted-foreground truncate flex-1">{m.url}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 shrink-0 text-muted-foreground"
+            onClick={() => onChange(media.filter((x) => x.id !== m.id))}
+          >
+            <X className="size-3" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs gap-1"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+      >
+        {uploading ? <Loader2 className="size-3 animate-spin" /> : <Upload className="size-3" />}
+        Attach image/video/audio
+      </Button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,audio/*,video/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+        }}
+      />
     </div>
   );
 }
