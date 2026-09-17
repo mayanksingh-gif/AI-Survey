@@ -1,0 +1,95 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ---------------------------------------------------------------------------
+// A Study is one research project: goal -> plan -> survey -> responses.
+// JSON-shaped fields are stored as String (SQLite has no native Json type)
+// and parsed/stringified at the lib/db boundary — see lib/db.ts helpers.
+// ---------------------------------------------------------------------------
+model Study {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  title         String
+  status        String   @default("draft") // draft | live | closed
+
+  researchGoal  String
+  followUps     String   @default("[]") // JSON: [{question, answer}]
+  researchPlan  String?  // JSON: ResearchPlan (see lib/survey/types.ts)
+
+  surveyTitle   String?
+  welcomeScreen String?  // JSON: { heading, body }
+  thankYouScreen String? // JSON: { heading, body }
+  experienceMode String  @default("professional") // professional | conversational | playful
+  surveyVersion Int      @default(1)
+
+  analysisCache String?  // JSON: cached AnalysisResult, invalidated on new response
+  analysisAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  questions     Question[]
+  responses     Response[]
+}
+
+model Question {
+  id            String   @id @default(cuid())
+  studyId       String
+  study         Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  order         Int
+  type          String   // single_choice | multiple_choice | yes_no | short_text |
+                          // long_text | rating | likert | nps | slider | ranking
+  text          String
+  helpText      String?
+  options       String   @default("[]") // JSON: string[] or {label,value}[]
+  required      Boolean  @default(true)
+  branchingRules String  @default("[]") // JSON: BranchingRule[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  answers       Answer[]
+
+  @@index([studyId, order])
+}
+
+model Response {
+  id            String   @id @default(cuid())
+  studyId       String
+  study         Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+
+  surveyVersion Int
+  status        String   @default("in_progress") // in_progress | completed
+  isPreview     Boolean  @default(false)
+
+  questionPath  String   @default("[]") // JSON: question ids in the order actually shown
+
+  startedAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  answers       Answer[]
+
+  @@index([studyId])
+}
+
+model Answer {
+  id           String   @id @default(cuid())
+  responseId   String
+  response     Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  value        String   // JSON: string | string[] | number | { rank: string[] } etc.
+
+  createdAt    DateTime @default(now())
+
+  @@index([responseId])
+  @@index([questionId])
+}
