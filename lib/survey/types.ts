@@ -103,6 +103,9 @@ export interface QuestionExtraConfig {
   comparisonItems?: string[];
   /** emoji_scale: emoji glyphs, ordered worst -> best, parallel to `options` */
   emojiSet?: string[];
+  /** card_choice: allow selecting more than one card (defaults to false —
+   * single-select, matching card_choice's role as a visual single_choice) */
+  allowMultiple?: boolean;
   /** personalization: when true, `text`/`helpText` may contain a
    * `{{previousAnswer:<questionId>}}` token resolved at render time —
    * see lib/survey/personalization.ts */
@@ -186,6 +189,10 @@ export interface ResearchPlan {
   distributionMethod: string;
   experienceMode: ExperienceMode;
   rationale: string;
+  /** V2: recommended engagement/gamification level + why. Never lets
+   * decorative gamification alter question meaning — see INTERACTION_LEVELS. */
+  interactionLevel: InteractionLevel;
+  interactionLevelRationale: string;
 }
 
 export interface ReviewIssue {

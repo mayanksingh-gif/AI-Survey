@@ -2,7 +2,7 @@
 // necessary follow-up questions, or a full research plan.
 import { generateStructured } from "@/lib/llm/client";
 import { FollowUpQuestionsSchema, ResearchPlanSchema } from "@/lib/llm/schemas";
-import { SURVEY_TYPES, type FollowUpQA, type ResearchPlan } from "@/lib/survey/types";
+import { INTERACTION_LEVELS, SURVEY_TYPES, type FollowUpQA, type ResearchPlan } from "@/lib/survey/types";
 
 const SYSTEM = `You are the Research Strategist inside an AI research copilot.
 Given a user's research goal (and any follow-up Q&A already gathered), decide
@@ -54,7 +54,16 @@ list: ${SURVEY_TYPES.join(", ")}. Pick experienceMode from: professional,
 conversational, playful — do not over-gamify serious research (e.g. employee
 feedback, churn, academic research should usually be professional or
 conversational, not playful). Briefly justify the recommendation in
-"rationale" (1-3 sentences).`,
+"rationale" (1-3 sentences).
+
+Also recommend an interactionLevel from exactly: ${INTERACTION_LEVELS.join(", ")}
+— how much interactive/gamified presentation (large cards, emoji scales,
+sliders, drag ranking, progress celebrations) the survey should use on top
+of its base questions. Guidance: academic research -> none or light;
+employee feedback -> light; product feedback -> light or medium; marketing
+quiz/consumer engagement -> high. Never recommend a level that would make
+serious or sensitive research feel unserious. Explain the recommendation in
+"interactionLevelRationale" (1-2 sentences).`,
     user: `Research goal: "${researchGoal}"${context}
 
 Return JSON matching:
@@ -67,7 +76,9 @@ Return JSON matching:
   "metric": string,
   "distributionMethod": string,
   "experienceMode": "professional" | "conversational" | "playful",
-  "rationale": string
+  "rationale": string,
+  "interactionLevel": "none" | "light" | "medium" | "high",
+  "interactionLevelRationale": string
 }`,
     schema: ResearchPlanSchema,
     temperature: 0.4,

@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { AiLabel } from "@/components/brand/signal-glyph";
 import { QuestionInput, type AnswerValue } from "@/components/survey-runtime/question-input";
 import { resolveNextQuestionId } from "@/lib/survey/branching";
+import { personalizeQuestion } from "@/lib/survey/personalization";
 import { cn } from "@/lib/utils";
 import type { Survey } from "@/lib/survey/types";
 
@@ -74,7 +75,10 @@ export function SurveyRunner({
     () => [...survey.questions].sort((a, b) => a.order - b.order),
     [survey.questions],
   );
-  const current = sortedQuestions.find((q) => q.id === currentId) ?? null;
+  const rawCurrent = sortedQuestions.find((q) => q.id === currentId) ?? null;
+  // Resolve any {{previousAnswer:...}} tokens against answers given so far —
+  // does not change branching, only the displayed copy.
+  const current = rawCurrent ? personalizeQuestion(rawCurrent, answers) : null;
   const questionIndex = current ? sortedQuestions.findIndex((q) => q.id === current.id) : -1;
   const progressPct = sortedQuestions.length
     ? Math.round(((questionIndex + 1) / sortedQuestions.length) * 100)
@@ -216,9 +220,23 @@ export function SurveyRunner({
         <div>
           <div className="mb-4">
             <Progress value={progressPct} className="h-1" />
-            <p className="mt-1.5 text-[11px] font-mono text-muted-foreground">
-              {questionIndex + 1} / {sortedQuestions.length}
-            </p>
+            <div className="mt-1.5 flex items-center justify-between">
+              <p className="text-[11px] font-mono text-muted-foreground">
+                {questionIndex + 1} / {sortedQuestions.length}
+              </p>
+              {/* Progress milestones: only for medium/high interaction levels
+                  — decorative encouragement, never alters question meaning. */}
+              {(survey.interactionLevel === "medium" || survey.interactionLevel === "high") &&
+                progressPct >= 50 && (
+                  <p className="text-[11px] text-signal font-medium animate-in fade-in">
+                    {progressPct >= 90
+                      ? "Almost there!"
+                      : progressPct >= 75
+                        ? "Great progress"
+                        : "Halfway there"}
+                  </p>
+                )}
+            </div>
           </div>
           <div className={cn("p-6", CARD_STYLES[survey.experienceMode])}>
             <p className={cn("font-medium leading-snug", conversational || playful ? "text-xl" : "text-base")}>
@@ -310,13 +328,78 @@ export function SurveyRunner({
       )}
 
       {stage === "thanks" && (
-        <div className={cn("p-8 text-center", CARD_STYLES[survey.experienceMode])}>
+        <div className={cn("p-8 text-center relative overflow-hidden", CARD_STYLES[survey.experienceMode])}>
+          {(survey.interactionLevel === "medium" || survey.interactionLevel === "high") && (
+            <ConfettiBurst intensity={survey.interactionLevel} />
+          )}
+          <div
+            className={cn(
+              "mx-auto mb-3 flex items-center justify-center rounded-full bg-sage/15 text-sage",
+              survey.interactionLevel === "high" ? "size-14" : "size-10",
+            )}
+          >
+            <Check className={cn(survey.interactionLevel === "high" ? "size-7" : "size-5")} />
+          </div>
           <h2 className="font-heading text-2xl font-medium">{survey.thankYouScreen.heading}</h2>
           <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
             {survey.thankYouScreen.body}
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Subtle completion celebration (PRD: "smooth transitions, subtle
+ * completion celebrations") — a handful of small dots drifting up and
+ * fading, no external animation library. Respects the interaction level:
+ * "high" gets more pieces than "medium". Purely decorative, unmounts on its
+ * own without leaving timers running. */
+function ConfettiBurst({ intensity }: { intensity: "medium" | "high" }) {
+  // Lazy useState initializer, not useMemo: this is a one-time randomized
+  // layout for a mount-only decorative burst, not a value derived from
+  // props/state that should recompute on re-render — the initializer form
+  // is the sanctioned escape hatch for that.
+  const [pieces] = useState(() => {
+    const count = intensity === "high" ? 18 : 9;
+    const colors = ["var(--color-signal)", "var(--color-sage)", "var(--color-chart-3)"];
+    return Array.from({ length: count }, (_, i) => ({
+      id: i,
+      left: Math.round(Math.random() * 100),
+      delay: Math.random() * 0.3,
+      duration: 0.9 + Math.random() * 0.6,
+      color: colors[i % colors.length],
+    }));
+  });
+
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden>
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          className="absolute top-1/2 size-1.5 rounded-full animate-in fade-in"
+          style={{
+            left: `${p.left}%`,
+            backgroundColor: p.color,
+            animation: `confetti-rise ${p.duration}s ease-out ${p.delay}s forwards`,
+          }}
+        />
+      ))}
+      <style jsx>{`
+        @keyframes confetti-rise {
+          0% {
+            transform: translateY(0) scale(0.6);
+            opacity: 0;
+          }
+          20% {
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(-90px) scale(1);
+            opacity: 0;
+          }
+        }
+      `}</style>
     </div>
   );
 }

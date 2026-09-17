@@ -43,6 +43,10 @@ export function QuestionChart({ stat }: { stat: QuestionStat }) {
       return <RankedBars data={stat.optionCounts ?? []} />;
     case "text_list":
       return <TextAnswerList answers={stat.rawTextAnswers ?? []} />;
+    case "matrix_grid":
+      return <MatrixGrid rows={stat.matrixRowCounts ?? []} />;
+    case "grouped_bar":
+      return <RankedBars data={stat.pairwiseWinCounts ?? []} />;
     default:
       return null;
   }
@@ -215,6 +219,22 @@ function RankedBars({ data }: { data: { label: string; count: number }[] }) {
               style={{ width: `${(d.count / max) * 100}%`, backgroundColor: "var(--color-chart-1)" }}
             />
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** matrix: one mini diverging-stacked-bar per row, reusing LikertBar's
+ * visual language so a matrix reads as "N little Likerts", not a new idiom. */
+function MatrixGrid({ rows }: { rows: { row: string; optionCounts: { label: string; value: string; count: number }[] }[] }) {
+  if (!rows.length) return <p className="text-xs text-muted-foreground">No matrix rows configured.</p>;
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.row}>
+          <p className="text-xs font-medium mb-1">{r.row}</p>
+          <LikertBar data={r.optionCounts} />
         </div>
       ))}
     </div>

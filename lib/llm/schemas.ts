@@ -29,6 +29,7 @@ export const QuestionExtraConfigSchema = z.object({
   categorizeItems: z.array(z.string()).optional(),
   comparisonItems: z.array(z.string()).optional(),
   emojiSet: z.array(z.string()).optional(),
+  allowMultiple: z.boolean().optional(),
   personalized: z.boolean().optional(),
 });
 
@@ -86,6 +87,8 @@ export const ResearchPlanSchema = z.object({
   distributionMethod: z.string().min(1),
   experienceMode: z.enum(EXPERIENCE_MODES),
   rationale: z.string().min(1),
+  interactionLevel: z.enum(INTERACTION_LEVELS),
+  interactionLevelRationale: z.string().min(1),
 });
 
 // --- Survey Editor / Optimizer ---------------------------------------------

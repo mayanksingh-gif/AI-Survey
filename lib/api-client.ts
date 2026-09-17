@@ -14,6 +14,7 @@ import type {
   ReviewIssue,
   Survey,
 } from "@/lib/survey/types";
+import type { DashboardStats, QuestionStats } from "@/lib/survey/stats";
 
 export class ApiError extends Error {}
 
@@ -140,23 +141,8 @@ export const api = {
 
   getResults: (id: string) =>
     request<{
-      dashboardStats: {
-        totalResponses: number;
-        completedResponses: number;
-        completionRate: number;
-        avgCompletionTimeSeconds: number | null;
-      };
-      questionStats: Array<{
-        question: Survey["questions"][number];
-        chartKind: string;
-        responseCount: number;
-        skipCount: number;
-        optionCounts?: { label: string; value: string; count: number }[];
-        numericValues?: number[];
-        npsBreakdown?: { promoters: number; passives: number; detractors: number; score: number };
-        rawTextAnswers?: string[];
-        rawAnswers: { responseId: string; value: unknown }[];
-      }>;
+      dashboardStats: DashboardStats;
+      questionStats: QuestionStats[];
     }>(`/api/studies/${id}/results`),
 
   analyze: (id: string, force = false) =>

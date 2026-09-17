@@ -10,12 +10,20 @@ const FIELDS: { key: keyof ResearchPlan; label: string }[] = [
   { key: "metric", label: "Main metric" },
   { key: "distributionMethod", label: "Distribution" },
   { key: "experienceMode", label: "Experience" },
+  { key: "interactionLevel", label: "Interaction level" },
 ];
 
 const EXPERIENCE_LABEL: Record<string, string> = {
   professional: "Professional",
   conversational: "Conversational",
   playful: "Playful",
+};
+
+const INTERACTION_LABEL: Record<string, string> = {
+  none: "None",
+  light: "Light",
+  medium: "Medium",
+  high: "High",
 };
 
 export function ResearchPlanCard({ plan }: { plan: ResearchPlan }) {
@@ -33,16 +41,26 @@ export function ResearchPlanCard({ plan }: { plan: ResearchPlan }) {
             <dd className="mt-1 text-sm font-medium">
               {key === "experienceMode"
                 ? EXPERIENCE_LABEL[plan.experienceMode] ?? plan.experienceMode
-                : String(plan[key])}
+                : key === "interactionLevel"
+                  ? INTERACTION_LABEL[plan.interactionLevel] ?? plan.interactionLevel
+                  : String(plan[key])}
             </dd>
           </div>
         ))}
       </dl>
-      <div className="px-6 py-5 border-t border-border">
-        <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground mb-1.5">
-          Why this method
-        </p>
-        <p className="text-sm text-foreground/90 leading-relaxed">{plan.rationale}</p>
+      <div className="px-6 py-5 border-t border-border grid grid-cols-2 gap-6">
+        <div>
+          <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground mb-1.5">
+            Why this method
+          </p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{plan.rationale}</p>
+        </div>
+        <div>
+          <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground mb-1.5">
+            Why this interaction level
+          </p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{plan.interactionLevelRationale}</p>
+        </div>
       </div>
     </div>
   );

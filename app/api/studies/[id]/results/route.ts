@@ -19,18 +19,5 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const questionStats = computeQuestionStats(study.questions, answers, dashboardStats.totalResponses);
 
-  return NextResponse.json({
-    dashboardStats,
-    questionStats: questionStats.map((q) => ({
-      question: q.question,
-      chartKind: q.chartKind,
-      responseCount: q.responseCount,
-      skipCount: q.skipCount,
-      optionCounts: q.optionCounts,
-      numericValues: q.numericValues,
-      npsBreakdown: q.npsBreakdown,
-      rawTextAnswers: q.rawTextAnswers,
-      rawAnswers: q.rawAnswers,
-    })),
-  });
+  return NextResponse.json({ dashboardStats, questionStats });
 }

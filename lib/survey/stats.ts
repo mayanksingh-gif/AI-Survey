@@ -42,11 +42,15 @@ export interface QuestionStats {
   chartKind: ReturnType<typeof chartKindForQuestionType>;
   responseCount: number;
   skipCount: number;
-  optionCounts?: OptionCount[]; // choice / yes_no / likert / ranking
-  numericValues?: number[]; // rating / slider / nps raw values
+  optionCounts?: OptionCount[]; // choice / yes_no / likert / ranking / card_choice / categorize
+  numericValues?: number[]; // rating / slider / nps / emoji_scale raw values
   npsBreakdown?: { promoters: number; passives: number; detractors: number; score: number };
   rawTextAnswers?: string[]; // short_text / long_text
   rawAnswers: { responseId: string; value: unknown }[];
+  /** matrix: per-row option counts, same shape as top-level optionCounts */
+  matrixRowCounts?: { row: string; optionCounts: OptionCount[] }[];
+  /** pairwise_comparison: win count per candidate item */
+  pairwiseWinCounts?: OptionCount[];
 }
 
 /**
@@ -90,7 +94,7 @@ export function computeQuestionStats(
         return stats;
       }
 
-      if (question.type === "rating" || question.type === "slider") {
+      if (question.type === "rating" || question.type === "slider" || question.type === "emoji_scale") {
         stats.numericValues = rawAnswers
           .map((a) => Number(a.value))
           .filter((v) => Number.isFinite(v));
@@ -131,18 +135,78 @@ export function computeQuestionStats(
         return stats;
       }
 
-      // single_choice, multiple_choice, yes_no, likert -> count per option
+      if (question.type === "matrix") {
+        const rows = question.extraConfig?.matrixRows ?? [];
+        stats.matrixRowCounts = rows.map((row) => {
+          const counts = new Map<string, number>();
+          for (const { value } of rawAnswers) {
+            const rowAnswers = (value as Record<string, string>) ?? {};
+            const v = rowAnswers[row];
+            if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+          }
+          return {
+            row,
+            optionCounts: question.options.map((opt) => ({
+              label: opt.label,
+              value: opt.value,
+              count: counts.get(opt.value) ?? 0,
+            })),
+          };
+        });
+        return stats;
+      }
+
+      if (question.type === "categorize") {
+        // Aggregate: how many times each category received an item, across
+        // all respondents (a respondent contributes 1 per category they used).
+        const categories = question.extraConfig?.categories ?? [];
+        const counts = new Map<string, number>();
+        for (const { value } of rawAnswers) {
+          const byCategory = (value as Record<string, string[]>) ?? {};
+          for (const cat of categories) {
+            counts.set(cat, (counts.get(cat) ?? 0) + (byCategory[cat]?.length ?? 0));
+          }
+        }
+        stats.optionCounts = categories.map((cat) => ({
+          label: cat,
+          value: cat,
+          count: counts.get(cat) ?? 0,
+        }));
+        return stats;
+      }
+
+      if (question.type === "pairwise_comparison") {
+        const items = question.extraConfig?.comparisonItems ?? question.options.map((o) => o.value);
+        const wins = new Map<string, number>();
+        for (const { value } of rawAnswers) {
+          const rounds = (value as Record<string, string>) ?? {};
+          for (const winner of Object.values(rounds)) {
+            wins.set(winner, (wins.get(winner) ?? 0) + 1);
+          }
+        }
+        stats.pairwiseWinCounts = items.map((item) => ({
+          label: item,
+          value: item,
+          count: wins.get(item) ?? 0,
+        }));
+        return stats;
+      }
+
+      // single_choice, multiple_choice, yes_no, likert, swipe_card, card_choice
+      // -> count per option
       const counts = new Map<string, number>();
       for (const { value } of rawAnswers) {
         const values = Array.isArray(value) ? (value as string[]) : [String(value)];
         for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
       }
       const options =
-        question.type === "yes_no"
-          ? [
-              { label: "Yes", value: "yes" },
-              { label: "No", value: "no" },
-            ]
+        question.type === "yes_no" || question.type === "swipe_card"
+          ? question.options.length
+            ? question.options
+            : [
+                { label: "Yes", value: "yes" },
+                { label: "No", value: "no" },
+              ]
           : question.options;
       stats.optionCounts = options.map((opt) => ({
         label: opt.label,

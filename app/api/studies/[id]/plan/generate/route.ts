@@ -21,6 +21,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       followUps: JSON.stringify(followUps),
       researchPlan: JSON.stringify(plan),
       experienceMode: plan.experienceMode,
+      interactionLevel: plan.interactionLevel,
+      interactionLevelRationale: plan.interactionLevelRationale,
     },
   });
 

@@ -17,6 +17,21 @@ step; use "nps" or "rating" instead for a discrete scale. Keep unrelated
 questions/screens exactly as they were — do not rewrite things the
 instruction didn't ask about.
 
+If asked to add one of the richer V2 types, set its "extraConfig"
+correctly: "matrix" needs extraConfig.matrixRows (options is the shared
+scale); "categorize" needs extraConfig.categorizeItems + extraConfig.categories;
+"pairwise_comparison" needs extraConfig.comparisonItems; "swipe_card" is a
+2-option yes_no-shaped question; "card_choice" is a visual single/multi
+choice (extraConfig.allowMultiple for multi-select); "emoji_scale" is a
+visual rating.
+
+If asked to personalize a question so it references an earlier answer
+naturally (e.g. "reference what they said about shipping"), set
+extraConfig.personalized: true and embed exactly one
+{{previousAnswer:<earlierQuestionId>}} token in its text — e.g. "You
+mentioned {{previousAnswer:q3}} was difficult. What specifically should we
+improve?" Only reference a question that appears earlier in the survey.
+
 Examples of instructions you must handle correctly:
 - "Make the survey shorter" -> remove the least essential questions.
 - "Make the language casual" -> rewrite question text/help text, keep meaning.
