@@ -17,7 +17,15 @@ const SENTIMENT_STYLES: Record<AnalysisResult["themes"][number]["sentiment"], st
   mixed: "border-signal/40 text-signal bg-signal/5",
 };
 
-export function AiAnalysisPanel({ studyId, hasResponses }: { studyId: string; hasResponses: boolean }) {
+export function AiAnalysisPanel({
+  studyId,
+  hasResponses,
+  qualityFilter = "all",
+}: {
+  studyId: string;
+  hasResponses: boolean;
+  qualityFilter?: string;
+}) {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [attempted, setAttempted] = useState(false);
@@ -25,7 +33,7 @@ export function AiAnalysisPanel({ studyId, hasResponses }: { studyId: string; ha
   async function runAnalysis(force = false) {
     setLoading(true);
     try {
-      const result = await api.analyze(studyId, force);
+      const result = await api.analyze(studyId, force, qualityFilter);
       if ("analysis" in result) setAnalysis(result.analysis);
       else toast.error(result.error);
     } catch (err) {
@@ -37,13 +45,14 @@ export function AiAnalysisPanel({ studyId, hasResponses }: { studyId: string; ha
   }
 
   useEffect(() => {
-    // Fetch-on-mount: synchronizing with the server-computed analysis cache.
-    // runAnalysis is intentionally omitted — it's stable in behavior for a
-    // given studyId and re-including it would refire on every render.
+    // Re-fetches on mount AND whenever qualityFilter changes — a filter
+    // change is a real scope change (different response subset), not just
+    // a re-render, so this is a genuine "synchronize with a new server
+    // query" effect rather than the fetch-on-mount pattern elsewhere.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (hasResponses) runAnalysis(false);
+    if (hasResponses) runAnalysis(qualityFilter !== "all");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [studyId, hasResponses]);
+  }, [studyId, hasResponses, qualityFilter]);
 
   if (!hasResponses) {
     return (

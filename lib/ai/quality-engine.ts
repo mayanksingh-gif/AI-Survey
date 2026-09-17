@@ -197,19 +197,41 @@ async function checkContradictions(
 
   const result = await generateStructured({
     system: `You check a single survey response's answers for direct logical
-contradictions — e.g. answering "never used this feature" to one question
-and "use it every day" to another. Only flag GENUINE contradictions, not
-merely different opinions or nuanced answers. Most responses have none.`,
+contradictions BETWEEN TWO OR MORE of its answers — e.g. answering "never
+used this feature" to one question and "use it every day" to another.
+
+A contradiction requires at least two answers that conflict with each
+other. Never report a single answer restated on its own — that is not a
+contradiction, it is just an answer. Only flag GENUINE, direct conflicts;
+different opinions, nuance, or a critical answer alongside a positive one
+are NOT contradictions (e.g. "confusing" + a low confidence rating are
+consistent with each other, not contradictory). Most responses have none
+— an empty array is the expected, correct answer far more often than not.
+
+Each string in "contradictions" MUST name both conflicting answers, in the
+form: "Answered '<X>' to '<question A>' but '<Y>' to '<question B>'."`,
     user: `Answers from one response:
 ${substantive.map((s) => `Q: ${s.question}\nA: ${s.answer}`).join("\n\n")}
 
 Return JSON: { "contradictions": string[] } — empty array if none found.`,
     schema: ContradictionCheckSchema,
-    temperature: 0.2,
+    temperature: 0.1,
     maxTokens: 400,
   });
 
-  return result.contradictions.map((desc) => ({
+  // Defensive filter: a genuine contradiction description contrasts two
+  // answers (typically via "but"/"vs"/"while", per the prompt's required
+  // format) and is longer than a single restated answer. A bare echo of
+  // one answer — which is what this model sometimes produces despite the
+  // tightened prompt — is short and lacks any contrast marker.
+  const genuine = result.contradictions.filter(
+    (desc) => desc.length > 40 && /\b(but|however|vs\.?|while|whereas|yet)\b/i.test(desc),
+  );
+
+  // Cap contradiction flags per response — even a genuine set rarely
+  // exceeds 1-2; more than that is a sign the check is still over-firing
+  // and every extra "high" severity flag is disproportionate to the score.
+  return genuine.slice(0, 2).map((desc) => ({
     type: "contradiction" as const,
     description: desc,
     severity: "high" as const,

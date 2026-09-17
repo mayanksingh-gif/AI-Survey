@@ -5,16 +5,25 @@
 // then feed the existing text-based theme/sentiment extraction (analyst.ts
 // style prompting) rather than duplicating that logic here.
 import { spawn } from "child_process";
-import path from "path";
 import { generateStructured } from "@/lib/llm/client";
 import { MediaAnalysisResultSchema } from "@/lib/llm/schemas";
 
+// Built via string concatenation, not path.join(process.cwd(), ...) — that
+// exact pattern is a heuristic Next.js/Turbopack uses to statically trace
+// and bundle referenced files for serverless output. .venv-llm/bin/python3
+// is a venv symlink pointing to the system Python (outside the project
+// tree), which that tracer can't resolve and fails the build on. This is a
+// runtime-only subprocess path, never meant to be bundled.
+function resolvePath(...segments: string[]): string {
+  return segments.join("/");
+}
+
 const PROJECT_ROOT = process.cwd();
-const VENV_PYTHON = path.join(PROJECT_ROOT, ".venv-llm", "bin", "python3");
+const VENV_PYTHON = resolvePath(PROJECT_ROOT, ".venv-llm", "bin", "python3");
 
 function runPython(script: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(VENV_PYTHON, [path.join(PROJECT_ROOT, "scripts", script), ...args]);
+    const proc = spawn(VENV_PYTHON, [resolvePath(PROJECT_ROOT, "scripts", script), ...args]);
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));

@@ -126,10 +126,25 @@ export const KeyFindingSchema = z.object({
   evidence: z.string().min(1),
 });
 
+// Local 4B models occasionally emit a near-miss sentiment value (wrong case,
+// or a close synonym like "critical"/"concerned") that would otherwise fail
+// validation on both the original attempt AND the one repair retry. This
+// normalizes common variants before the strict enum check, rather than
+// spending the retry budget on something recoverable in code.
+const SentimentSchema = z.preprocess((val) => {
+  if (typeof val !== "string") return val;
+  const lower = val.toLowerCase().trim();
+  if (["positive", "negative", "neutral", "mixed"].includes(lower)) return lower;
+  if (/(critical|concern|frustrat|angry|upset|disappoint)/.test(lower)) return "negative";
+  if (/(happy|satisf|pleas|delight|praise)/.test(lower)) return "positive";
+  if (/(mixed|both|split)/.test(lower)) return "mixed";
+  return "neutral";
+}, z.enum(["positive", "negative", "neutral", "mixed"]));
+
 export const TextThemeSchema = z.object({
   theme: z.string().min(1),
   mentionCount: z.number().int().min(0),
-  sentiment: z.enum(["positive", "negative", "neutral", "mixed"]),
+  sentiment: SentimentSchema,
   sampleQuotes: z.array(z.string()).default([]),
   kind: z.enum(THEME_KINDS).optional(),
   subthemes: z.array(z.string()).optional(),
@@ -220,7 +235,7 @@ export const AskResearchAnswerSchema = z.object({
 
 export const MediaAnalysisResultSchema = z.object({
   themes: z.array(z.string()).default([]),
-  sentiment: z.enum(["positive", "negative", "neutral", "mixed"]).optional(),
+  sentiment: SentimentSchema.optional(),
   keyPoints: z.array(z.string()).default([]),
   description: z.string().optional(),
 });
