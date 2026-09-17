@@ -6,6 +6,7 @@ import { useStudy } from "@/lib/study-context";
 import { AiChatEmptyHint, AiChatPanel } from "@/components/survey-builder/ai-chat-panel";
 import { SurveyFlowPanel } from "@/components/survey-builder/survey-flow-panel";
 import { ReviewerPanel } from "@/components/survey-builder/reviewer-panel";
+import { SuggestionsPanel } from "@/components/survey-builder/suggestions-panel";
 import { SurveyRunner } from "@/components/survey-runtime/survey-runner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api-client";
@@ -101,6 +102,7 @@ export default function BuildPage() {
           <div className="rounded-xl border border-border bg-muted/30 p-6 flex-1 flex items-center justify-center">
             <SurveyRunner survey={survey} />
           </div>
+          <SuggestionsPanel studyId={study.id} onSurveyUpdated={handleAiUpdate} />
           <ReviewerPanel studyId={study.id} onFixApplied={handleAiUpdate} />
         </div>
       </div>
