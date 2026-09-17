@@ -10,24 +10,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const force = body?.force === true;
+  const qualityFilter: string = body?.qualityFilter ?? "all";
+  // Only the unfiltered ("all") result is cached on Study — a filtered
+  // analysis is scoped to a specific quality selection and would be wrong
+  // to serve back as the default cached summary.
+  const usesCache = qualityFilter === "all";
 
   const study = await prisma.study.findUnique({
     where: { id },
-    include: { questions: true, responses: true },
+    include: { questions: true, responses: { include: { quality: true } } },
   });
   if (!study) return NextResponse.json({ error: "Study not found" }, { status: 404 });
 
-  const dashboardStats = computeDashboardStats(study.responses);
-
-  if (!force && study.analysisCache && study.analysisAt) {
+  if (usesCache && !force && study.analysisCache && study.analysisAt) {
     return NextResponse.json({ analysis: JSON.parse(study.analysisCache), cached: true });
   }
 
+  let scopedResponses = study.responses;
+  if (qualityFilter === "high_and_normal") {
+    scopedResponses = scopedResponses.filter(
+      (r) => r.isPreview || !r.quality || r.quality.category === "high_quality" || r.quality.category === "normal",
+    );
+  } else if (qualityFilter === "exclude_suspicious") {
+    scopedResponses = scopedResponses.filter((r) => r.isPreview || !r.quality || r.quality.category !== "suspicious");
+  }
+
+  const dashboardStats = computeDashboardStats(scopedResponses);
   if (dashboardStats.totalResponses === 0) {
     return NextResponse.json({ error: "No responses yet to analyze" }, { status: 400 });
   }
 
-  const nonPreviewResponseIds = study.responses.filter((r) => !r.isPreview).map((r) => r.id);
+  const nonPreviewResponseIds = scopedResponses.filter((r) => !r.isPreview).map((r) => r.id);
   const answers = nonPreviewResponseIds.length
     ? await prisma.answer.findMany({ where: { responseId: { in: nonPreviewResponseIds } } })
     : [];
@@ -35,10 +48,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const analysis = await analyzeResponses(dashboardStats, questionStats);
 
-  await prisma.study.update({
-    where: { id },
-    data: { analysisCache: JSON.stringify(analysis), analysisAt: new Date() },
-  });
+  if (usesCache) {
+    await prisma.study.update({
+      where: { id },
+      data: { analysisCache: JSON.stringify(analysis), analysisAt: new Date() },
+    });
+  }
 
   return NextResponse.json({ analysis, cached: false });
 }

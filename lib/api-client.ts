@@ -7,7 +7,6 @@ import type {
   FollowUpQA,
   Insight,
   InteractionLevel,
-  QualityCategory,
   ResearchPlan,
   ResearchSuggestionItem,
   ResponseQualityResult,
@@ -141,17 +140,22 @@ export const api = {
       body: JSON.stringify({ suggestionId }),
     }),
 
-  getResults: (id: string) =>
+  getResults: (id: string, qualityFilter: string = "all") =>
     request<{
       dashboardStats: DashboardStats;
       questionStats: QuestionStats[];
-    }>(`/api/studies/${id}/results`),
+    }>(`/api/studies/${id}/results?qualityFilter=${qualityFilter}`),
 
-  analyze: (id: string, force = false) =>
+  analyze: (id: string, force = false, qualityFilter: string = "all") =>
     request<{ analysis: AnalysisResult; cached: boolean } | { error: string }>(
       `/api/studies/${id}/analyze`,
-      { method: "POST", body: JSON.stringify({ force }) },
+      { method: "POST", body: JSON.stringify({ force, qualityFilter }) },
     ),
+
+  // --- V2: Respondent Quality Detection ---------------------------------
+
+  getQuality: (id: string, force = false) =>
+    request<{ quality: ResponseQualityResult[] }>(`/api/studies/${id}/quality?force=${force}`),
 
   exportCsvUrl: (id: string) => `/api/studies/${id}/export`,
 

@@ -6,7 +6,6 @@ import {
   QUESTION_TYPES,
   SURVEY_TYPES,
   SUGGESTION_CATEGORIES,
-  QUALITY_CATEGORIES,
   QUALITY_FLAG_TYPES,
   THEME_KINDS,
 } from "@/lib/survey/types";
@@ -198,11 +197,13 @@ export const QualityFlagSchema = z.object({
   severity: z.enum(["low", "medium", "high"]),
 });
 
-export const ResponseQualityAssessmentSchema = z.object({
-  score: z.number().int().min(0).max(100),
-  category: z.enum(QUALITY_CATEGORIES),
-  flags: z.array(QualityFlagSchema),
-  positiveIndicators: z.array(z.string()),
+// Note: no top-level "assess this response's quality" schema — score and
+// category are computed deterministically in lib/ai/quality-engine.ts from
+// real signals (speed, straight-lining, gibberish, duplicates), never
+// self-assessed by the model. The only LLM call in that pipeline is the
+// narrow contradiction check below.
+export const ContradictionCheckSchema = z.object({
+  contradictions: z.array(z.string()).default([]),
 });
 
 // --- V2: Ask Your Research ---------------------------------------------------

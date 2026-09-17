@@ -217,6 +217,7 @@ model ResponseQuality {
   score       Int      // 0-100
   category    String   // high_quality | normal | needs_review | suspicious
   flags       String   @default("[]") // JSON: { type, description, severity }[]
+  positiveIndicators String @default("[]") // JSON: string[]
 
   computedAt  DateTime @default(now())
 }
