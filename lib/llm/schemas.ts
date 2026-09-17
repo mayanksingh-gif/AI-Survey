@@ -6,7 +6,6 @@ import {
   QUESTION_TYPES,
   SURVEY_TYPES,
   SUGGESTION_CATEGORIES,
-  EVIDENCE_STRENGTHS,
   QUALITY_CATEGORIES,
   QUALITY_FLAG_TYPES,
   THEME_KINDS,
@@ -179,14 +178,15 @@ export const EvidenceItemSchema = z.object({
   questionId: z.string().optional(),
 });
 
+// Note: deliberately does NOT include evidenceStrength/evidenceStrengthReason
+// — that verdict is computed by lib/ai/evidence-engine.ts from real stats,
+// never asserted by the model about its own output. See lib/ai/insight-generator.ts.
 export const InsightGenerationResultSchema = z.object({
   finding: z.string().min(1),
   evidence: z.array(EvidenceItemSchema).min(1),
   hypothesis: z.string().min(1),
   recommendedAction: z.string().min(1),
   nextResearch: z.string().min(1),
-  evidenceStrength: z.enum(EVIDENCE_STRENGTHS),
-  evidenceStrengthReason: z.string().min(1),
   relatedQuestionIds: z.array(z.string()).default([]),
 });
 

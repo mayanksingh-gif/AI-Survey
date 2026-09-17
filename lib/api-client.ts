@@ -188,6 +188,22 @@ export const api = {
       `/api/studies/${id}/ask`,
       { method: "POST", body: JSON.stringify({ question, history }) },
     ),
+
+  // --- V2: Insight -> Action ------------------------------------------------
+
+  getInsights: (id: string) => request<{ insights: Insight[] }>(`/api/studies/${id}/insights`),
+
+  generateInsight: (id: string, focusHint?: string) =>
+    request<{ insight: Insight } | { error: string }>(`/api/studies/${id}/insights`, {
+      method: "POST",
+      body: JSON.stringify({ focusHint }),
+    }),
+
+  createFollowUpStudy: (id: string, insightId: string) =>
+    request<{ study: StudySummary & { id: string } }>(
+      `/api/studies/${id}/insights/${insightId}/follow-up-study`,
+      { method: "POST" },
+    ),
 };
 
 // --- Public (respondent-facing), no auth ---------------------------------

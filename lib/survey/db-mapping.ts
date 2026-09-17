@@ -1,10 +1,11 @@
 // SQLite has no native Json column, so Study/Question rows store JSON as
 // String. These helpers convert between the Prisma row shape and the
 // in-memory Survey/ResearchPlan types used everywhere else.
-import type { Study, Question } from "@prisma/client";
+import type { Study, Question, Insight as InsightRow } from "@prisma/client";
 import type {
   BranchingRule,
   FollowUpQA,
+  Insight,
   QuestionOption,
   ResearchPlan,
   Survey,
@@ -52,4 +53,21 @@ export function researchPlanFromStudy(study: Study): ResearchPlan | null {
 
 export function followUpsFromStudy(study: Study): FollowUpQA[] {
   return JSON.parse(study.followUps ?? "[]");
+}
+
+export function insightFromRow(row: InsightRow): Insight {
+  return {
+    id: row.id,
+    studyId: row.studyId,
+    finding: row.finding,
+    evidence: JSON.parse(row.evidence),
+    hypothesis: row.hypothesis,
+    recommendedAction: row.recommendedAction,
+    nextResearch: row.nextResearch,
+    evidenceStrength: row.evidenceStrength as Insight["evidenceStrength"],
+    evidenceStrengthReason: row.evidenceStrengthReason,
+    relatedQuestionIds: JSON.parse(row.relatedQuestionIds),
+    followUpStudyId: row.followUpStudyId,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
