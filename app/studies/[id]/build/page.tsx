@@ -17,6 +17,11 @@ export default function BuildPage() {
   const [survey, setSurvey] = useState<Survey | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped on every persist() call; a save's response is only applied if
+  // it's still the most recent one requested — otherwise a slower earlier
+  // save landing after a newer edit would stomp that newer edit with
+  // stale (though still real, just outdated) ids/content.
+  const saveToken = useRef(0);
 
   useEffect(() => {
     // Seeds local editable state from the fetched study; local `survey` then
@@ -31,8 +36,17 @@ export default function BuildPage() {
       if (!study) return;
       setSaveState("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      const token = ++saveToken.current;
       saveTimer.current = setTimeout(async () => {
-        await api.saveSurvey(study.id, next);
+        const { survey: saved } = await api.saveSurvey(study.id, next);
+        // Adopt the server's response — a newly-added question (client-
+        // side placeholder id from SurveyFlowPanel's "Add question") gets
+        // its real database id back here. Skipping this left the client
+        // holding a stale id that a subsequent image/media upload on that
+        // same question would then fail against. Only apply it if no
+        // newer save has been requested since — otherwise this response
+        // is already outdated and would stomp a more recent edit.
+        if (token === saveToken.current) setSurvey(saved);
         setSaveState("saved");
       }, 500);
     },

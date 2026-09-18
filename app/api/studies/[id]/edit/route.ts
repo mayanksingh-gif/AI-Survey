@@ -22,5 +22,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { survey, changeSummary } = await editSurvey(currentSurvey, instruction);
   const { study: updatedStudy, questions } = await persistSurvey(id, survey);
 
-  return NextResponse.json({ survey, changeSummary, study: updatedStudy, questions });
+  // Return the persisted shape, not the AI's output directly — a question
+  // the AI kept unchanged carries its real id through fine, but any
+  // question it added only has whatever placeholder id it invented, which
+  // persistSurvey replaces with a real one on create.
+  return NextResponse.json({
+    survey: surveyFromStudy(updatedStudy, questions),
+    changeSummary,
+    study: updatedStudy,
+    questions,
+  });
 }

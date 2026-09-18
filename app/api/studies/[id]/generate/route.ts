@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateSurvey } from "@/lib/ai/generator";
-import { researchPlanFromStudy } from "@/lib/survey/db-mapping";
+import { researchPlanFromStudy, surveyFromStudy } from "@/lib/survey/db-mapping";
 import { persistSurvey } from "@/lib/survey/persist";
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -20,5 +20,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const survey = await generateSurvey(study.researchGoal, plan);
   const { study: updatedStudy, questions } = await persistSurvey(id, survey);
 
-  return NextResponse.json({ survey, study: updatedStudy, questions });
+  // Generation always replaces every question (there's no "existing" to
+  // preserve on first generate), but return the persisted shape anyway for
+  // consistency with every other write path — the AI's own "q1"/"q2" ids
+  // never match real database ids, so the client needs the real ones back.
+  return NextResponse.json({ survey: surveyFromStudy(updatedStudy, questions), study: updatedStudy, questions });
 }
