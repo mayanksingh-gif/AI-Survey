@@ -10,11 +10,23 @@ import {
   THEME_KINDS,
 } from "@/lib/survey/types";
 
-export const QuestionOptionSchema = z.object({
+// Local models occasionally emit an option as a bare string (e.g. "Option A")
+// instead of the required {label, value} object — every question type that
+// carries options (choice/rating/likert/nps/card_choice/emoji_scale/matrix
+// scale) is exposed to this, so it's worth normalizing once here rather
+// than failing generation/edit/review calls system-wide. A bare string
+// becomes both its own label and value (slugified) since that's the only
+// reasonable interpretation of "just a string where an option belongs."
+export const QuestionOptionSchema = z.preprocess((val) => {
+  if (typeof val === "string") {
+    return { label: val, value: val.toLowerCase().trim().replace(/\s+/g, "-") || val };
+  }
+  return val;
+}, z.object({
   label: z.string().min(1),
   value: z.string().min(1),
   imageUrl: z.string().optional(),
-});
+}));
 
 export const BranchingRuleSchema = z.object({
   when: z.string().min(1),
