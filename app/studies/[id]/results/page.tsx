@@ -106,7 +106,7 @@ export default function ResultsPage() {
         <InsightsPanel studyId={study.id} hasResponses={hasResponses} />
 
         {hasResponses && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+          <div className="flex flex-col gap-6">
             <div className="rounded-xl border border-border bg-card p-5">
               <ResponseTrendChart studyId={study.id} />
             </div>

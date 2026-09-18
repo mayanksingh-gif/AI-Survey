@@ -33,6 +33,17 @@ export function FollowUpFlow({
       .finally(() => setLoadingQuestions(false));
   }, [studyId]);
 
+  // "Nothing more needed" is discovered only after the fetch above resolves,
+  // so notifying the parent (which itself calls setState) has to happen in
+  // its own effect — doing it directly in the render body, even guarded by
+  // a condition, is a setState-during-another-component's-render violation
+  // since onDone -> setStage runs synchronously while FollowUpFlow is
+  // still rendering.
+  useEffect(() => {
+    if (questions && questions.length === 0) onDone([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions]);
+
   if (loadingQuestions) {
     return (
       <div className="rounded-xl border border-border bg-card p-6 space-y-3">
@@ -46,8 +57,8 @@ export function FollowUpFlow({
   }
 
   if (!questions || questions.length === 0) {
-    // Nothing more needed — skip straight to plan generation.
-    onDone([]);
+    // Nothing more needed — the effect above notifies the parent; render
+    // nothing while that happens.
     return null;
   }
 
