@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateSurvey } from "@/lib/ai/generator";
-import { researchPlanFromStudy, surveyFromStudy } from "@/lib/survey/db-mapping";
+import { researchPlanFromStudy, surveyFromStudy, followUpsFromStudy } from "@/lib/survey/db-mapping";
 import { persistSurvey } from "@/lib/survey/persist";
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -17,7 +17,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     );
   }
 
-  const survey = await generateSurvey(study.researchGoal, plan);
+  const survey = await generateSurvey(study.researchGoal, plan, followUpsFromStudy(study));
   const { study: updatedStudy, questions } = await persistSurvey(id, survey);
 
   // Generation always replaces every question (there's no "existing" to

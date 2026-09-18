@@ -1,7 +1,8 @@
 // Survey Generator: research plan -> a full structured survey.
+import { z } from "zod";
 import { generateStructured } from "@/lib/llm/client";
-import { SurveySchema } from "@/lib/llm/schemas";
-import { QUESTION_TYPES, type ResearchPlan, type Survey } from "@/lib/survey/types";
+import { SurveySchema, SurveyQuestionSchema } from "@/lib/llm/schemas";
+import { QUESTION_TYPES, type FollowUpQA, type ResearchPlan, type Survey } from "@/lib/survey/types";
 
 const SYSTEM = `You are the Survey Generator inside an AI research copilot.
 Given an approved research plan, produce a complete, ready-to-review survey:
@@ -52,19 +53,51 @@ real value (e.g. promoters -> "what do you like most?", detractors -> "what
 would need to change?") rather than asking everyone the same generic
 follow-up. Assign each question a short unique id like "q1", "q2".`;
 
+// Local 4B models get noticeably less reliable (slower, more likely to
+// truncate/emit invalid JSON) the more questions they're asked to produce
+// in one completion. Rather than requesting a large plan.questionCount in
+// a single call, the initial call is capped here and any remainder is
+// filled via generateAdditionalQuestions in bounded-size batches — several
+// smaller reliable calls beat one large unreliable one.
+const INITIAL_BATCH_MAX = 12;
+const TOPUP_BATCH_MAX = 10;
+
 export async function generateSurvey(
   researchGoal: string,
   plan: ResearchPlan,
+  followUps: FollowUpQA[] = [],
 ): Promise<Survey> {
+  // The follow-up Q&A gathered before the plan was approved (who the
+  // respondents are, what decision this informs, specifics about the
+  // product/flow/team being researched) often carries content the
+  // questions themselves should reflect — not just the plan's compressed
+  // summary fields. Passing it through here is what makes "the answers
+  // given before building the survey actually affect the survey" true,
+  // rather than only affecting the plan's metadata (audience/duration/
+  // etc.) while the generated questions stay generic.
+  const followUpContext = followUps.length
+    ? `\n\nContext gathered from the user before this plan was approved — use
+these specifics (product/flow/feature names, team, timeframe, prior
+findings, etc.) to make the generated questions concrete and specific
+rather than generic:\n${followUps
+        .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
+        .join("\n")}`
+    : "";
+
+  const initialCount = Math.min(plan.questionCount, INITIAL_BATCH_MAX);
+
   const survey = await generateStructured({
     system: SYSTEM,
-    user: `Research goal: "${researchGoal}"
+    user: `Research goal: "${researchGoal}"${followUpContext}
 
 Approved research plan:
 ${JSON.stringify(plan, null, 2)}
 
-Generate exactly ${plan.questionCount} questions (a reasonable ±1 tolerance is
-fine if it clearly improves the survey). Set "experienceMode" to
+Generate exactly ${initialCount} questions${
+      initialCount < plan.questionCount
+        ? ` (this is the first batch of the plan's full ${plan.questionCount} — more will be requested separately, so just cover the most important ground first)`
+        : ""
+    }. Set "experienceMode" to
 "${plan.experienceMode}". The plan's interactionLevel is "${plan.interactionLevel}"
 (${plan.interactionLevelRationale}) — use richer V2 question types only to
 the extent that level calls for it. Return JSON matching the Survey shape:
@@ -81,15 +114,76 @@ the extent that level calls for it. Return JSON matching the Survey shape:
 }`,
     schema: SurveySchema,
     temperature: 0.5,
-    maxTokens: 2200,
+    maxTokens: Math.min(3200, 900 + initialCount * 220),
   });
 
   // Set deterministically from the approved plan rather than trusting the
   // model to copy it through — this is a study-level setting, not something
   // the survey-generation call should be free to reinterpret.
+  let questions = survey.questions;
+
+  // Fill any remainder — both what the batch cap above intentionally left
+  // out, and any shortfall from the model under-delivering even within
+  // that batch — in further bounded-size chunks rather than one big call.
+  while (questions.length < plan.questionCount) {
+    const missing = Math.min(TOPUP_BATCH_MAX, plan.questionCount - questions.length);
+    const topUp = await generateAdditionalQuestions(researchGoal, plan, questions, missing, followUpContext);
+    if (topUp.length === 0) break; // avoid an infinite loop if the model returns nothing
+    questions = [...questions, ...topUp];
+  }
+  questions = questions.map((q, i) => ({ ...q, order: i }));
+
   return {
     ...survey,
+    questions,
     interactionLevel: plan.interactionLevel,
     interactionLevelRationale: plan.interactionLevelRationale,
   };
+}
+
+const AdditionalQuestionsSchema = z.object({
+  questions: z.array(SurveyQuestionSchema).min(1),
+});
+
+/** Requests exactly `count` more questions that extend an already-generated
+ * survey, so a model that under-delivered on the first pass still ends up
+ * at the plan's actual questionCount instead of silently shipping a
+ * shorter survey than the user asked for. */
+async function generateAdditionalQuestions(
+  researchGoal: string,
+  plan: ResearchPlan,
+  existing: Survey["questions"],
+  count: number,
+  followUpContext: string,
+) {
+  // Only pass the existing questions' text/type/id as context, not their
+  // full JSON (options, branching, etc.) — keeps this call's prompt size
+  // (and therefore latency) roughly flat regardless of how many batches
+  // have already run, instead of growing every round.
+  const existingSummary = existing.map((q) => `- (${q.type}) ${q.text}`).join("\n");
+
+  const result = await generateStructured({
+    system: `You are the Survey Generator inside an AI research copilot,
+continuing a survey that already has some questions — you are adding MORE
+questions to reach the plan's required total, not replacing anything.
+Use ONLY these question types: ${QUESTION_TYPES.join(", ")}. Follow the same
+option/extraConfig rules as any other question of these types (e.g. slider
+needs exactly 2 [min,max] options, matrix needs extraConfig.matrixRows,
+etc.). Never duplicate the topic of an existing question — cover genuinely
+new ground relevant to the research goal. Assign each new question a short
+unique id not already used (e.g. "q_extra1", "q_extra2").`,
+    user: `Research goal: "${researchGoal}"${followUpContext}
+
+Research plan: ${JSON.stringify(plan, null, 2)}
+
+Questions already in the survey:
+${existingSummary}
+
+Generate exactly ${count} additional questions to append. Return JSON:
+{ "questions": [{ "id": string, "order": number, "type": string, "text": string, "helpText"?: string, "options": [{"label": string, "value": string}], "required": boolean }] }`,
+    schema: AdditionalQuestionsSchema,
+    temperature: 0.5,
+    maxTokens: Math.min(2600, 400 + count * 220),
+  });
+  return result.questions;
 }

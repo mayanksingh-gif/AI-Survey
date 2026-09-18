@@ -98,6 +98,12 @@ export const api = {
   generateSurvey: (id: string) =>
     request<{ survey: Survey }>(`/api/studies/${id}/generate`, { method: "POST" }),
 
+  updatePlan: (id: string, plan: Partial<ResearchPlan>) =>
+    request<{ plan: ResearchPlan }>(`/api/studies/${id}/plan`, {
+      method: "PATCH",
+      body: JSON.stringify({ plan }),
+    }),
+
   editSurvey: (id: string, instruction: string) =>
     request<{ survey: Survey; changeSummary: string }>(`/api/studies/${id}/edit`, {
       method: "POST",

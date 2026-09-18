@@ -37,8 +37,11 @@ async function chat(
         temperature: opts.temperature ?? 0.4,
         max_tokens: opts.maxTokens ?? 1200,
       }),
-      // The sidecar is local and can be slow to cold-start; give it room.
-      signal: AbortSignal.timeout(120_000),
+      // The sidecar is local and can be slow to cold-start, and decode time
+      // scales with maxTokens — a fixed 120s timeout was tight enough to
+      // abort large generations (e.g. a 40-question survey) outright. Scale
+      // the timeout with the requested token budget, floored at 120s.
+      signal: AbortSignal.timeout(Math.max(120_000, (opts.maxTokens ?? 1200) * 150)),
     });
   } catch (err) {
     throw new LlmUnavailableError(err);

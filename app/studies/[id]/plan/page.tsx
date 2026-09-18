@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api-client";
 import { toast } from "sonner";
-import type { FollowUpQA } from "@/lib/survey/types";
+import type { FollowUpQA, ResearchPlan } from "@/lib/survey/types";
 
 export default function PlanPage() {
   const { study, loading, refresh } = useStudy();
@@ -44,6 +44,11 @@ export default function PlanPage() {
       toast.error(err instanceof Error ? err.message : "Could not generate research plan");
       setStage("followups");
     }
+  }
+
+  async function handlePlanSave(patch: Partial<ResearchPlan>) {
+    await api.updatePlan(study!.id, patch);
+    await refresh();
   }
 
   async function handleGenerateSurvey() {
@@ -78,7 +83,7 @@ export default function PlanPage() {
 
       {hasPlan && study.researchPlan && !generatingSurvey && (
         <>
-          <ResearchPlanCard plan={study.researchPlan} />
+          <ResearchPlanCard plan={study.researchPlan} onSave={handlePlanSave} />
           <AdaptiveFollowUpSetting studyId={study.id} value={study.adaptiveFollowUpMode} />
           <div className="flex justify-end">
             <Button size="lg" onClick={handleGenerateSurvey} className="gap-2">
