@@ -21,6 +21,7 @@ const SUGGESTIONS = [
   "Make the language more casual",
   "Add an NPS question",
   "Make question 2 optional",
+  "Add a card-choice question comparing two designs",
 ];
 
 export function AiChatPanel({

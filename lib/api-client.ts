@@ -17,7 +17,13 @@ import type { DashboardStats, QuestionStats } from "@/lib/survey/stats";
 import type { SegmentFilter } from "@/lib/survey/segments";
 import type { CrossQuestionResult } from "@/lib/survey/cross-question";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -26,7 +32,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body?.error || `Request failed (${res.status})`);
+    throw new ApiError(body?.error || `Request failed (${res.status})`, body?.code);
   }
   return res.json();
 }

@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Loader2, Rocket } from "lucide-react";
+import Link from "next/link";
+import { Check, Copy, ImageOff, Loader2, Rocket } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useStudy } from "@/lib/study-context";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/study/status-badge";
 import { api } from "@/lib/api-client";
+import { findMissingImages } from "@/lib/survey/media-checks";
 import { toast } from "sonner";
 
 export default function SharePage() {
@@ -30,6 +32,7 @@ export default function SharePage() {
   const publicPath = `/s/${study.slug}`;
   const publicUrl = typeof window !== "undefined" ? `${window.location.origin}${publicPath}` : publicPath;
   const isLive = study.status === "live";
+  const missingImages = findMissingImages(study.survey);
 
   async function handlePublish() {
     setPublishing(true);
@@ -52,6 +55,29 @@ export default function SharePage() {
 
   return (
     <div className="max-w-lg mx-auto space-y-6">
+      {missingImages.length > 0 && (
+        <div className="rounded-xl border border-signal/40 bg-signal/5 p-4 text-sm">
+          <div className="flex items-center gap-2 font-medium text-foreground">
+            <ImageOff className="size-4 text-signal shrink-0" />
+            Missing images for {missingImages.length} question{missingImages.length === 1 ? "" : "s"}
+          </div>
+          <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {missingImages.map((issue) => (
+              <li key={issue.questionId}>
+                “{issue.questionText}” — {issue.missingOptionLabels.join(", ")} missing an image
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Respondents will see a blank card for these options.{" "}
+            <Link href={`/studies/${study.id}/build`} className="text-signal hover:underline">
+              Add images in the Build tab
+            </Link>
+            .
+          </p>
+        </div>
+      )}
+
       <div className="rounded-xl border border-border bg-card p-6 text-center">
         <StatusBadge status={study.status} className="mx-auto" />
         <h2 className="mt-3 font-heading text-xl font-medium">

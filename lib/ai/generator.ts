@@ -34,7 +34,13 @@ Richer V2 types and their required "extraConfig":
   first = negative/left swipe, last = positive/right swipe.
 - "card_choice": visual variant of single_choice/multiple_choice — normal
   "options"; set extraConfig.allowMultiple: true only if multiple selection
-  is wanted (defaults to single-select).
+  is wanted (defaults to single-select). Use this type when the research
+  goal is fundamentally a visual comparison (e.g. "which design do
+  respondents prefer", concept/screenshot A-vs-B testing) — the creator
+  attaches the actual images to each option afterward in the builder, so
+  never invent or guess an "imageUrl" value yourself; leave it unset and
+  just get the option labels right (e.g. "Design A", "Design B", or the
+  actual concept names from the research goal if given).
 - "emoji_scale": visual variant of rating — "options" like rating, optionally
   set extraConfig.emojiSet to override the default emoji glyphs.
 

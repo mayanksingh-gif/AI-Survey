@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { QuestionTypeBadge } from "@/components/survey-builder/question-type-badge";
-import type { BranchingRule, MediaRef, SurveyQuestion } from "@/lib/survey/types";
+import { QUESTION_TYPE_LABELS } from "@/components/survey-builder/question-type-badge";
+import { QUESTION_TYPES, type BranchingRule, type MediaRef, type SurveyQuestion } from "@/lib/survey/types";
 
 interface Props {
   question: SurveyQuestion;
@@ -63,7 +63,33 @@ export function QuestionEditorCard({ question, index, total, allQuestions, study
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <span className="font-mono text-xs text-muted-foreground w-5">{index + 1}</span>
-            <QuestionTypeBadge type={question.type} />
+            <select
+              value={question.type}
+              onChange={(e) => {
+                const type = e.target.value as SurveyQuestion["type"];
+                // card_choice is the "compare 2+ images" type — seed two
+                // blank options immediately so the image-upload slots this
+                // change unlocks are visible right away, not hidden behind
+                // an empty options list the user has to know to fill in.
+                const options =
+                  type === "card_choice" && question.options.length < 2
+                    ? [
+                        { label: "Option A", value: "option-a" },
+                        { label: "Option B", value: "option-b" },
+                      ]
+                    : question.options;
+                onChange({ ...question, type, options });
+                if (type === "card_choice") setExpanded(true);
+              }}
+              className="h-5 rounded bg-secondary px-1.5 text-[10px] font-mono uppercase tracking-wide text-secondary-foreground border-0 cursor-pointer"
+              title="Change question type"
+            >
+              {QUESTION_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {QUESTION_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
             {!question.required && (
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">optional</span>
             )}
@@ -87,6 +113,14 @@ export function QuestionEditorCard({ question, index, total, allQuestions, study
               {OPTION_TYPES.has(question.type) && (
                 <OptionsEditor
                   options={question.options}
+                  // Per-option images only make sense for the visual/
+                  // comparison-style type — matrix/emoji_scale options are
+                  // a shared scale (agreement labels, emoji), not distinct
+                  // things being compared, so an image per option there
+                  // wouldn't mean anything.
+                  allowImages={question.type === "card_choice"}
+                  studyId={studyId}
+                  questionId={question.id}
                   onChange={(options) => onChange({ ...question, options })}
                 />
               )}
@@ -232,21 +266,89 @@ function StringListEditor({
 
 function OptionsEditor({
   options,
+  allowImages,
+  studyId,
+  questionId,
   onChange,
 }: {
   options: SurveyQuestion["options"];
+  /** card_choice only — see the caller for why. Requires studyId+questionId
+   * to upload. */
+  allowImages?: boolean;
+  studyId?: string;
+  questionId?: string;
   onChange: (options: SurveyQuestion["options"]) => void;
 }) {
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  async function handleImageFile(i: number, file: File) {
+    if (!studyId || !questionId) return;
+    setUploadingIndex(i);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      // Reuses the question-stimulus upload path purely to get a stored
+      // URL back — there's no per-option Media relation, so the option
+      // just keeps the url string. The resulting Media row is attached to
+      // this question like any stimulus upload; harmless since it's never
+      // rendered unless also added to stimulusMedia.
+      form.append("questionId", questionId);
+      const res = await fetch(`/api/studies/${studyId}/media`, { method: "POST", body: form });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Upload failed");
+      const { media } = await res.json();
+      const next = [...options];
+      next[i] = { ...next[i], imageUrl: media.url };
+      onChange(next);
+    } catch {
+      // Swallow — same rationale as StimulusMediaEditor: no toast plumbing
+      // reaches this deep, a failed upload just leaves imageUrl unset.
+    } finally {
+      setUploadingIndex(null);
+    }
+  }
+
   return (
     <div className="space-y-1.5">
       <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">Options</p>
       {options.map((opt, i) => (
         <div key={i} className="flex items-center gap-1.5">
+          {allowImages && (
+            <>
+              <button
+                type="button"
+                onClick={() => inputRefs.current[i]?.click()}
+                className="size-8 shrink-0 rounded-md border border-dashed border-border flex items-center justify-center overflow-hidden hover:border-foreground/40 transition-colors"
+                title={opt.imageUrl ? "Replace image" : "Add image"}
+              >
+                {uploadingIndex === i ? (
+                  <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                ) : opt.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={opt.imageUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Upload className="size-3.5 text-muted-foreground" />
+                )}
+              </button>
+              <input
+                ref={(el) => {
+                  inputRefs.current[i] = el;
+                }}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImageFile(i, file);
+                }}
+              />
+            </>
+          )}
           <Input
             value={opt.label}
             onChange={(e) => {
               const next = [...options];
-              next[i] = { label: e.target.value, value: e.target.value };
+              next[i] = { ...next[i], label: e.target.value, value: e.target.value };
               onChange(next);
             }}
             className="h-8 text-sm"

@@ -1,17 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { Monitor, Smartphone } from "lucide-react";
+import { Monitor, RefreshCw, Smartphone } from "lucide-react";
 import { useStudy } from "@/lib/study-context";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { SurveyRunner } from "@/components/survey-runtime/survey-runner";
-import { publicApi } from "@/lib/api-client";
+import { ApiError, publicApi } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 export default function PreviewPage() {
   const { study, loading } = useStudy();
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [responseId, setResponseId] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+
+  function handleStaleSurvey(err: unknown) {
+    if (err instanceof ApiError && err.code === "STALE_SURVEY") {
+      setStale(true);
+      return true;
+    }
+    return false;
+  }
 
   if (loading || !study) {
     return <Skeleton className="h-[600px] w-full rounded-xl max-w-md mx-auto" />;
@@ -30,6 +40,21 @@ export default function PreviewPage() {
     const { responseId: id } = await publicApi.startResponse(study!.slug, true);
     setResponseId(id);
     return id;
+  }
+
+  if (stale) {
+    return (
+      <div className="max-w-md mx-auto text-center py-24 space-y-4">
+        <p className="text-sm text-muted-foreground">
+          This survey changed while you were previewing it (likely from an edit in the Build tab).
+          Reload to preview the current version.
+        </p>
+        <Button variant="outline" className="gap-1.5" onClick={() => window.location.reload()}>
+          <RefreshCw className="size-4" />
+          Reload preview
+        </Button>
+      </div>
+    );
   }
 
   return (
@@ -83,12 +108,20 @@ export default function PreviewPage() {
             onAnswer={async (questionId, value) => {
               await ensurePreviewResponse();
               if (responseId) {
-                await publicApi.saveAnswer(study.slug, responseId, { answer: { questionId, value } });
+                try {
+                  await publicApi.saveAnswer(study.slug, responseId, { answer: { questionId, value } });
+                } catch (err) {
+                  if (!handleStaleSurvey(err)) throw err;
+                }
               }
             }}
             onComplete={async (path) => {
               if (responseId) {
-                await publicApi.saveAnswer(study.slug, responseId, { questionPath: path, complete: true });
+                try {
+                  await publicApi.saveAnswer(study.slug, responseId, { questionPath: path, complete: true });
+                } catch (err) {
+                  if (!handleStaleSurvey(err)) throw err;
+                }
               }
             }}
             onCheckAdaptiveFollowUp={async (questionId, answer) => {

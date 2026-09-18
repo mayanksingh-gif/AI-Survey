@@ -76,32 +76,29 @@ export default function PlanPage() {
         </div>
       )}
 
-      {hasPlan && study.researchPlan && (
+      {hasPlan && study.researchPlan && !generatingSurvey && (
         <>
           <ResearchPlanCard plan={study.researchPlan} />
           <AdaptiveFollowUpSetting studyId={study.id} value={study.adaptiveFollowUpMode} />
-          {generatingSurvey && (
-            <div className="rounded-xl border border-border bg-card p-6">
-              <DesignerJokes />
-            </div>
-          )}
           <div className="flex justify-end">
-            <Button size="lg" onClick={handleGenerateSurvey} disabled={generatingSurvey} className="gap-2">
-              {generatingSurvey ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Generating survey…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-4" />
-                  Generate Survey
-                  <ArrowRight className="size-4" />
-                </>
-              )}
+            <Button size="lg" onClick={handleGenerateSurvey} className="gap-2">
+              <Sparkles className="size-4" />
+              Generate Survey
+              <ArrowRight className="size-4" />
             </Button>
           </div>
         </>
+      )}
+
+      {/* Dedicated generating screen — replaces the plan/settings entirely so
+          nothing underneath can be edited (adaptive follow-up mode, etc.)
+          while the survey is being generated. */}
+      {generatingSurvey && (
+        <div className="rounded-xl border border-border bg-card p-10 flex flex-col items-center text-center gap-4">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          <p className="text-sm font-medium">Generating your survey…</p>
+          <DesignerJokes />
+        </div>
       )}
     </div>
   );

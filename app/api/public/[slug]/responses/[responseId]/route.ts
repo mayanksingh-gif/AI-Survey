@@ -17,6 +17,19 @@ export async function PATCH(
 
   if (body?.answer?.questionId) {
     const { questionId, value } = body.answer;
+    // The survey may have been regenerated (Build tab AI edit/"Generate
+    // Survey") since this response started — persistSurvey replaces every
+    // Question row on regeneration, so an in-flight response's questionId
+    // can go stale mid-session. Surface that clearly instead of a raw FK
+    // violation, so the client can prompt a reload rather than 500ing.
+    const question = await prisma.question.findUnique({ where: { id: questionId } });
+    if (!question || question.studyId !== response.studyId) {
+      return NextResponse.json(
+        { error: "This survey has changed since you started. Please reload and start again.", code: "STALE_SURVEY" },
+        { status: 409 },
+      );
+    }
+
     const existing = await prisma.answer.findFirst({ where: { responseId, questionId } });
     if (existing) {
       await prisma.answer.update({ where: { id: existing.id }, data: { value: JSON.stringify(value) } });

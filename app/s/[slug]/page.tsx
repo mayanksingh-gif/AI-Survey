@@ -1,8 +1,10 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { SurveyRunner } from "@/components/survey-runtime/survey-runner";
-import { publicApi } from "@/lib/api-client";
+import { ApiError, publicApi } from "@/lib/api-client";
 import type { Survey } from "@/lib/survey/types";
 
 export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
@@ -11,6 +13,15 @@ export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
   const [studyId, setStudyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [responseId, setResponseId] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+
+  function handleStaleSurvey(err: unknown) {
+    if (err instanceof ApiError && err.code === "STALE_SURVEY") {
+      setStale(true);
+      return true;
+    }
+    return false;
+  }
 
   useEffect(() => {
     publicApi
@@ -37,6 +48,22 @@ export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
     );
   }
 
+  if (stale) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <p className="text-sm text-muted-foreground">
+            This survey was updated. Please reload to continue with the latest version.
+          </p>
+          <Button variant="outline" className="gap-1.5" onClick={() => window.location.reload()}>
+            <RefreshCw className="size-4" />
+            Reload survey
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (!survey) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
@@ -54,11 +81,19 @@ export default function PublicSurveyPage(props: PageProps<"/s/[slug]">) {
         }}
         onAnswer={async (questionId, value) => {
           const id = await ensureResponse();
-          await publicApi.saveAnswer(slug, id, { answer: { questionId, value } });
+          try {
+            await publicApi.saveAnswer(slug, id, { answer: { questionId, value } });
+          } catch (err) {
+            if (!handleStaleSurvey(err)) throw err;
+          }
         }}
         onComplete={async (path) => {
           const id = await ensureResponse();
-          await publicApi.saveAnswer(slug, id, { questionPath: path, complete: true });
+          try {
+            await publicApi.saveAnswer(slug, id, { questionPath: path, complete: true });
+          } catch (err) {
+            if (!handleStaleSurvey(err)) throw err;
+          }
         }}
         onCheckAdaptiveFollowUp={async (questionId, answer) => {
           const id = await ensureResponse();

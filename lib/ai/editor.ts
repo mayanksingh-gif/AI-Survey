@@ -25,6 +25,16 @@ scale); "categorize" needs extraConfig.categorizeItems + extraConfig.categories;
 choice (extraConfig.allowMultiple for multi-select); "emoji_scale" is a
 visual rating.
 
+Images: some options already have an "imageUrl" set (the user uploaded them
+in the builder). NEVER remove, clear, or invent a value for an existing
+"imageUrl" — always carry it through unchanged on any option you keep. If
+asked to "create a question comparing these images" / "add a question
+asking which design they prefer" and the survey already has a question with
+image options, add a NEW "card_choice" question with option labels only
+(e.g. "Design A", "Design B") and leave "imageUrl" unset on any option you
+create — the user attaches images to new options themselves afterward, you
+cannot see or generate real image URLs.
+
 If asked to personalize a question so it references an earlier answer
 naturally (e.g. "reference what they said about shipping"), set
 extraConfig.personalized: true and embed exactly one
