@@ -422,6 +422,8 @@ function RankingInput({
 /** swipe_card: same answer shape as yes_no (a single string, e.g. "yes"/"no")
  * but presented as a card with swipe gestures — plus fully keyboard/click
  * accessible left/right buttons, since not every respondent can swipe. */
+const SWIPE_THRESHOLD = 80;
+
 function SwipeCardInput({
   options,
   value,
@@ -436,32 +438,86 @@ function SwipeCardInput({
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const startXRef = useRef(0);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   function commit(choice: { label: string; value: string }) {
     onChange(choice.value);
     setDragX(0);
   }
 
+  function endDrag(finalX: number) {
+    setDragging(false);
+    if (finalX > SWIPE_THRESHOLD) commit(right);
+    else if (finalX < -SWIPE_THRESHOLD) commit(left);
+    else setDragX(0);
+  }
+
+  const leaning = dragX > 12 ? "right" : dragX < -12 ? "left" : null;
+  const pastThreshold = Math.abs(dragX) > SWIPE_THRESHOLD;
+
   return (
     <div>
-      <div
-        className="relative rounded-xl border border-border bg-card p-8 text-center select-none touch-none"
-        style={{ transform: `translateX(${dragX}px) rotate(${dragX / 20}deg)`, transition: dragging ? "none" : "transform 0.2s" }}
-        onPointerDown={(e) => {
-          setDragging(true);
-          startXRef.current = e.clientX;
-        }}
-        onPointerMove={(e) => {
-          if (dragging) setDragX(e.clientX - startXRef.current);
-        }}
-        onPointerUp={() => {
-          setDragging(false);
-          if (dragX > 80) commit(right);
-          else if (dragX < -80) commit(left);
-          else setDragX(0);
-        }}
-      >
-        <p className="text-base font-medium">{value ? opts.find((o) => o.value === value)?.label : "Swipe or choose below"}</p>
+      <div className="relative">
+        {/* Directional hints revealed as the card leans past a small
+            deadzone, so the respondent sees what a further swipe commits
+            to before they let go — the un-fixed version gave no feedback
+            at all until release. */}
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 flex items-center pl-3 text-destructive transition-opacity",
+            leaning === "left" ? (pastThreshold ? "opacity-100" : "opacity-50") : "opacity-0",
+          )}
+        >
+          <X className="size-5" />
+        </div>
+        <div
+          className={cn(
+            "absolute inset-y-0 right-0 flex items-center pr-3 text-sage transition-opacity",
+            leaning === "right" ? (pastThreshold ? "opacity-100" : "opacity-50") : "opacity-0",
+          )}
+        >
+          <Check className="size-5" />
+        </div>
+        <div
+          ref={cardRef}
+          className={cn(
+            "relative rounded-xl border-2 bg-card p-8 text-center select-none touch-none",
+            dragging ? "cursor-grabbing" : "cursor-grab",
+            pastThreshold
+              ? leaning === "right"
+                ? "border-sage"
+                : "border-destructive"
+              : "border-border",
+          )}
+          style={{
+            transform: `translateX(${dragX}px) rotate(${dragX / 20}deg)`,
+            transition: dragging ? "none" : "transform 0.2s, border-color 0.15s",
+          }}
+          onPointerDown={(e) => {
+            setDragging(true);
+            startXRef.current = e.clientX;
+            // Without capture, a fast drag that leaves the card's screen
+            // bounds stops receiving pointermove/pointerup on this element
+            // — the card was getting stuck mid-drag because of exactly
+            // this, which read as "not working properly."
+            cardRef.current?.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (dragging) setDragX(e.clientX - startXRef.current);
+          }}
+          onPointerUp={(e) => {
+            cardRef.current?.releasePointerCapture(e.pointerId);
+            endDrag(dragX);
+          }}
+          onPointerCancel={(e) => {
+            cardRef.current?.releasePointerCapture(e.pointerId);
+            endDrag(0);
+          }}
+        >
+          <p className="text-base font-medium">
+            {value ? opts.find((o) => o.value === value)?.label : "Drag left or right, or choose below"}
+          </p>
+        </div>
       </div>
       <div className="mt-4 flex gap-3">
         <Button
