@@ -1,0 +1,258 @@
+Riri — Complete End-to-End Thinking Process
+1. The two-layer "brain" — this is the key design idea
+Riri isn't one LLM doing everything. There are two distinct thinking systems working together, and understanding why is the key to the whole design:
+
+A fast, deterministic regex/rule layer (_parse_command in dsm_controller.py) handles every phrasing the team actually uses — "skip", "start DSM", "mark X leave", "who's next", etc. Zero latency, zero LLM call.
+The LLM is only invoked for things regex genuinely can't decide: extracting a task from free-form speech, classifying truly ambiguous interruptions, and — most importantly — the Task Sense Check (deciding if a transcript is real).
+This matters because a live meeting can't afford an LLM round-trip on every single utterance. The regex layer catches the 90% of routine turns instantly; the LLM is reserved for judgment calls.
+
+2. Capture → transcript (per utterance)
+
+mic → Silero VAD (start/stop, 32ms frames) → trim silence → normalize peak → reject if too short/quiet
+    → faster-whisper (biased by a vocabulary "initial_prompt") → filler-word cleanup
+The vocabulary biasing (vocab.py) is a small but real trick: config/dsm_vocabulary.txt holds real names/aliases and project jargon (mined from actual past standups — "AIOS", "Confluence", "SF+", etc). This gets joined into one sentence and handed to Whisper as initial_prompt — Whisper treats it as prior context, so it's statistically biased toward hearing "AIOS" instead of "AI OS," or the right project name instead of a phonetically-similar wrong word. This is why STT accuracy on your specific team's vocabulary is better than generic Whisper.
+
+Confidence banding comes straight from Whisper's own avg_logprob per segment (High/Medium/Low thresholds in config) — not a separate model, just Whisper's own certainty about what it heard.
+
+3. Every utterance gets classified before it's acted on
+This is the part you specifically asked about — "does Riri think about whether input is real." The answer is: classification happens in two stages, and neither stage blindly trusts what STT produced.
+
+Stage 1 — intent classification (_classify): before Riri decides whether something is a task, a command, a question, or chat, _parse_command runs against the entire transcript. Critically, the ordering here is deliberate and encodes real product decisions:
+
+Questions are checked before actions — so "what did you save for Mayank?" can't accidentally get parsed as a correction to Mayank's record.
+Status disputes are checked before plain leave/pending matchers — so "Abhishek is not pending" doesn't literally set the thing it's denying.
+If nothing matches and the phase is "chat" near a garbled "dsm"-ish word, or STT confidence was Low, it asks rather than assumes ("Did you want me to start DSM?"). It never guesses on ambiguous input.
+Only if this fast layer truly can't classify something (mostly barge-in interruptions or final-review free text) does it fall through to _classify_freeform, a single LLM call.
+Stage 2 — Task Sense Check (task_validator.py) — this is the deepest "is this real" reasoning in the whole system, and it's the only path by which spoken text ever becomes a saved task. Even after STT produces a clean transcript, it still isn't trusted at face value. The LLM is handed:
+
+the raw AND cleaned transcript,
+this specific employee's own recent task patterns (from dsm_task_memory.json, mined from two months of real standups),
+common team tasks, known project terms, common verbs/phrases, and a literal list of "noise words that aren't real tasks",
+and is asked to reason through 5 explicit steps (does this sound like a real task → does it match this team's patterns → strip noise words → normalize into a clean phrase → decide confidence), producing one of four verdicts:
+
+Decision	Meaning
+VALID_HIGH	Clean, unambiguous real task → save immediately
+VALID_MEDIUM	Real task after removing some noise/minor ambiguity → save immediately
+NEEDS_CONFIRMATION	Plausible but not certain → Riri reads it back and asks "did you mean X?"
+INVALID	Doesn't sound like a real task at all → ask to repeat, never saved
+The prompt explicitly forbids two failure modes in both directions: "Do NOT blindly trust STT confidence — even if confidence is High, if the transcript doesn't sound like a real task, don't mark it valid" and "Do NOT invent or hallucinate a task the transcript doesn't support." So a garbled-but-real task and a clean-but-nonsensical transcript are both caught.
+
+On top of the LLM's own verdict, two deterministic safety rules override it no matter what the LLM says — these aren't LLM judgment, they're hard code:
+
+If STT confidence was Low, any VALID_* verdict is force-downgraded to NEEDS_CONFIRMATION — a shaky transcription is a risk regardless of how clean the cleaned version reads.
+If the LLM's response is malformed/unparsable JSON, or claims valid with no actual task text, it falls back to NEEDS_CONFIRMATION with a plain readback — never treated as evidence to silently save.
+This is genuinely "does Riri think about whether this is real" implemented as actual code, not just a prompt instruction hoped-for by the LLM.
+
+4. Name resolution — same paranoid pattern
+names.py never trusts a fuzzy match if it could be wrong in a costly way. Two concrete guards:
+
+A stopword list of command/filler words that can never become a name-match, so "who's name did you call?" doesn't fuzzy-match someone named "Aman".
+Stricter matching thresholds for short names (≤4 letters use 0.90 similarity vs 0.78 normally) — "Son" is one edit away from "sun"/"song"/"soon", so loose matching there would invent attendance for nobody.
+When two roster members share a first name (Abhishek M / Abhishek P), a bare "Abhishek" is treated as genuinely ambiguous and declined unless a human curated it as an alias in employees.json — the system fails closed rather than guessing which Abhishek.
+5. Personality — deliberately not LLM-generated for routine lines
+This is a specific, intentional tradeoff worth understanding: Riri's actual spoken lines during a normal meeting are not written by the LLM. persona.py has static phrase banks (multiple variants per situation, chosen randomly for variety) for every routine moment — calling someone, confirming a task, marking pending, closing the meeting. The LLM is only used for the two genuinely open-ended cases: casual chat replies and correction/task-extraction judgment calls.
+
+Why: an LLM call per line would add real latency to every single turn of the meeting. Pre-written variants keep the meeting fast while still not sounding robotic (multiple phrasings + a throttled joke system — jokes are capped to roughly once every 4 people, chosen with a 60% chance even when eligible, and structurally forbidden on Leave/Pending/Review-required lines since the persona rules explicitly say accuracy and appropriateness come before humor).
+
+config/riri_system_prompt.txt (~490 lines) is the actual single source of truth for identity, DSM flow, status definitions, and the full intent taxonomy — but it's not sent whole on every call. persona.load_persona_sections() splits it on its ━━━ HEADER ━━━ blocks, so e.g. task extraction only receives the "TASK UPDATE HANDLING" section, not the whole document — same source of truth, without the token/latency cost of resending 490 lines every turn.
+
+6. State machine — where "chat" vs "DSM" mode actually lives
+
+chat_idle → asking_to_start_dsm → dsm_greeting → calling_employee → waiting_for_task → ... → completed
+                                                        │                  │
+                                                handling_command    correcting_task
+                                                        │
+                                                     paused
+self.mode is "chat" or "dsm"; self.state is one of 10 named states. The app always opens in chat mode — it does not auto-launch into a meeting. It only transitions to dsm_greeting after an explicit confirmation ("start DSM", "let's start", "go ahead") — and per the classify logic above, a garbled or low-confidence utterance near "dsm" gets a clarifying question instead of triggering the meeting, since accidentally starting a real meeting on a mishear would be a bad failure mode.
+
+7. Output → speech
+Once Riri decides what to say (either a persona phrase-bank line, or an LLM chat reply), tts.speak():
+
+Checks the on-disk cache (keyed by voice+text hash) — this is why routine lines (all pre-warmed at startup) play back near-instantly instead of paying Kokoro synthesis latency every time.
+Synthesizes via Kokoro if not cached, plays via sounddevice, routed to whichever output device is configured (default speakers, or VB-Cable when in Teams mode).
+Barge-in is currently disabled on your machine (measured directly: Riri's own voice saturates VAD at probability 1.0 with no AEC, indistinguishable from real speech at any threshold) — so in practice she always finishes her sentence before listening again.
+8. Teams routing — why two separate virtual devices, not one
+Worth being precise about why two different drivers, since it's not obvious:
+
+VB-Cable solves one direction only: Riri's TTS → a virtual "microphone" Teams can select. Writing audio to VB-Cable's output is literally the same pipe as reading it back on VB-Cable's input (on macOS it's one combined device; on Windows it's exposed as two separately-named devices, "CABLE Input"/"CABLE Output" — same underlying mechanism, different naming).
+BlackHole solves the other direction: letting Riri hear Teams' participants. macOS's CoreAudio has no OS-level loopback API at all (unlike Windows' WASAPI, which the original Windows-only code used) — so instead, a macOS Multi-Output Device (built in Audio MIDI Setup) is used to physically fan Teams' call audio out to both your real speakers and BlackHole simultaneously. Riri then just reads BlackHole as a completely ordinary input device — no loopback trickery needed on macOS at all, which is actually architecturally simpler than the Windows path once BlackHole is in the graph.
+That's the full pipeline, from the physical air pressure hitting the mic to the physical air pressure leaving the speaker, including every point where the system deliberately asks itself "is this real / am I sure" rather than just trusting the previous stage.
+
+dont use teachy terms like parse command or dsm controller.py explaion in simple english
+How Riri Actually Thinks, Start to Finish
+The big idea first
+Riri isn't one AI brain doing everything. It's mostly a fast rule-follower, with a real thinking model (the LLM) only called in for the handful of moments that genuinely need judgment. This matters because if every single sentence had to go through a full AI "think about this" step, the meeting would feel painfully slow. So most of what Riri does is instant pattern-matching, and only the hard calls get escalated to actual reasoning.
+
+Step 1: Turning your voice into text
+Your voice hits the mic, and before anything else happens, a small detector called VAD figures out "is someone actually talking right now, or is this silence/background noise." It watches in tiny 32-millisecond slices, waits for real speech to start, and waits for a proper pause before deciding you're done — that's what stops it from chopping off the first word of your sentence or cutting you off mid-thought.
+
+Once it has a full chunk of speech, it hands that to the transcription engine (Whisper), which turns it into text. One nice trick here: before transcribing, Riri quietly feeds it a list of your team's actual names and jargon — "Aakanksha," "AIOS," "Confluence," "SF+," whatever's specific to your team. This biases it toward hearing those correctly instead of guessing something that merely sounds similar. Whisper also tells us how confident it is in what it heard — that confidence score matters a lot later.
+
+Step 2: "What did they actually mean?"
+Now Riri has some text. Before doing anything with it, she has to figure out what kind of thing you just said — a question, a command, a task update, small talk, a correction, whatever. This is where the fast rule-based layer does most of the work: it checks the sentence against a big list of known phrasings ("skip", "mark someone on leave", "who's next," etc.) and if it clearly matches one, that's instant — no AI thinking needed, she just knows what you meant.
+
+A few of these rules are deliberately ordered to avoid dumb mistakes:
+
+If your sentence is a question ("what did you save for Mayank?"), that gets caught before it could be mistaken for you trying to correct Mayank's task.
+If you're disputing something ("Abhishek is NOT pending"), that's checked before the plain "mark as pending" rule — otherwise the negation would get ignored and it'd do the opposite of what you said.
+If she's not sure whether you're trying to start the meeting (garbled speech, or low confidence in what she heard), she doesn't guess — she just asks "did you want me to start DSM?" rather than risk starting a real meeting on a mishearing.
+Only when none of these rules match — usually when you interrupt her mid-sentence with something unpredictable — does she actually hand the sentence to the AI and ask it to figure out what you meant. That's the expensive path, used sparingly on purpose.
+
+Step 3: The real "is this actually true / real" check
+This is the part you're most interested in, and it's the deepest thinking Riri does. Even after she has a clean transcript of your task update, she does not just trust it and save it. Every single task update — no matter how it was said — goes through one dedicated sanity check before it's ever recorded.
+
+Here's what that check actually does: it hands the AI your raw and cleaned-up sentence, plus some context about your team — things you personally have said before in past standups, common tasks the team reports, known project terms, and even a list of words that are usually just noise and not real work ("rabbit," "lion," random junk that sometimes sneaks into a transcription). Then it asks the AI to reason through it step by step: does this sound like a real task? Does it match the kind of thing this person usually says? Strip out anything that's obviously noise. Then decide how confident it is.
+
+The AI comes back with one of four verdicts:
+
+Clearly a real task, no cleanup needed → save it right away.
+Real task, but had to clean up some noise or minor confusion → still save it right away.
+Might be a real task, but not sure enough → she reads it back to you and asks "did you mean X?" before saving anything.
+Doesn't sound like a real task at all → nothing gets saved, she just asks you to repeat yourself.
+And there are two hard rules that override the AI's own judgment no matter what it says, because relying purely on the AI's confidence isn't safe enough on its own:
+
+If the transcription itself was low-confidence (Whisper wasn't sure what it heard), she always double-checks with you first — even if the cleaned-up version reads perfectly, a shaky transcription is still a real risk of having heard something wrong.
+If the AI's response comes back broken, malformed, or claims something is valid but gives no actual task text — none of that ever counts as permission to save. It always falls back to asking you rather than guessing.
+So the honest answer to "does Riri check if this is real" is: yes, genuinely, and it's not just one AI call blindly trusted — it's an AI judgment wrapped in hard safety rules that can override it.
+
+Step 4: Matching names correctly
+When someone's name comes up in a sentence, Riri has to match what she heard to someone on the actual team list — and mishearing a name wrong could genuinely mark the wrong person absent, which is a real problem, not a cosmetic one. So the matching is deliberately cautious:
+
+Common filler/command words are blocked from ever being mistaken for a name — so "who's name did you call?" doesn't accidentally get matched to someone named "Aman."
+Short names get a much stricter matching bar, because a short name like "Son" is dangerously close to ordinary words like "sun" or "soon" — loose matching there would invent someone's turn out of nowhere.
+If two people share a first name and she genuinely can't tell which one you meant, she doesn't guess — she treats it as ambiguous and asks, unless someone already told her in advance which one that name usually refers to.
+Step 5: How she decides what to actually say
+Here's a deliberate design choice: for the routine, repetitive parts of a meeting — calling someone's name, confirming a task, marking someone pending, closing the meeting — Riri is not making that up fresh with the AI each time. Those lines are pre-written (several variants of each, picked at random so it doesn't feel robotic and repetitive), because asking the AI to invent a fresh sentence for every single routine moment would add real delay to every turn of the meeting. The AI is only actually writing text when you're chatting casually with her, or when something needs real judgment (like the task-checking step above).
+
+There's also a small joke system layered on top of the routine lines — she'll occasionally add a light joke after confirming a task, but never every time, never too often, and never on serious moments like marking someone absent or unclear — accuracy and appropriateness always come first.
+
+Step 6: Chat mode vs. meeting mode
+She always starts in casual chat mode, not straight into a meeting — she'll greet you and ask if you want to start today's standup. She only switches into actual meeting mode once you clearly confirm it. And again, if your confirmation was garbled or she wasn't confident in what she heard, she asks instead of just starting the meeting on a guess, since accidentally kicking off a real meeting because of a mishearing would be a bad mistake.
+
+Step 7: Turning her reply into speech
+Once she's decided what to say, it gets spoken out loud. For anything she's said before in this session (which covers most of the routine lines, since they're all pre-generated once at startup), playback is instant because it's already been recorded — she's not re-generating the audio every single time. For anything new (real chat replies), it does need to be generated fresh, which takes a little longer.
+
+One current limitation, worth knowing plainly: on this Mac, she can't tell the difference between "the user is interrupting me" and "my own voice bounced back through the microphone" — so interrupting her mid-sentence right now doesn't actually work reliably. She'll always finish what she's saying before listening again.
+
+Step 8: Getting her voice into a Teams call
+Two separate pieces of software are doing two separate jobs here, which is easy to get confused:
+
+One virtual device (VB-Cable) lets her speak into the meeting — whatever she says gets piped into something Teams treats as your microphone.
+A second piece (BlackHole, plus a small setup step combining it with your speakers) lets her hear the meeting — Mac doesn't have a built-in way to "listen to whatever's currently playing," so this routes the meeting's audio to both your ears and to something Riri can listen in on, at the same time.
+That's the complete path — from the raw sound hitting the microphone, through every point where Riri is genuinely checking "am I sure about this, or should I ask instead of guessing," all the way to the sound coming out the other end.
+
+list down al the tools we are using like stt tts llm etc
+Tools & Models Riri Uses
+Speech-to-Text (STT)
+faster-whisper — the actual engine that turns your voice into text (a fast, optimized version of OpenAI's Whisper)
+Model: large-v3-turbo — the specific Whisper model being used; picked for being fast on this Mac's CPU while staying accurate. (There's a large-v3 "high accuracy" fallback available in config if you ever want to trade speed for a bit more accuracy in a noisy room)
+Voice Activity Detection (VAD) — decides when you start/stop talking
+Silero VAD, running through ONNX Runtime — the small, fast model that listens for "is this actually speech or just silence/noise," used both for normal turn-taking and (originally) for detecting interruptions
+Large Language Model (LLM) — the actual "thinking" brain
+Qwen3-4B-Instruct — the specific model
+Running locally via MLX (Apple's framework for running AI models efficiently on Apple Silicon) through mlx_lm.server, which exposes it as a local server your Mac talks to — no cloud, no API key, nothing leaves your machine
+The rest of the code was originally built to also support DeepSeek (a cloud AI service) as an alternative — we're not using that; we swapped in the local Qwen model instead, using the same connection method (an "OpenAI-compatible" style connection) so nothing else in the code had to change
+Text-to-Speech (TTS) — Riri's actual voice
+Kokoro — the voice synthesis model that generates Riri's spoken audio
+Specific voice used: af_heart (one of Kokoro's built-in voice options)
+Runs through the PyTorch version of Kokoro on this Mac (there's also a faster ONNX version supported in the code, but it needs extra files we haven't downloaded, so it's just using the regular PyTorch one, which works fine)
+Audio playback/recording
+sounddevice — the library that actually talks to your Mac's microphone and speakers to record and play audio
+Task Sense Check / Name Matching — no separate tool, reuses the LLM + plain code
+The "is this a real task" check reuses the same local Qwen model above — it's not a separate model, just a different kind of question sent to it
+Name matching (figuring out who you mean when you say a name) doesn't use AI at all — it's plain Python code doing fuzzy text comparison (a built-in Python tool called difflib), deliberately kept simple and predictable rather than AI-based
+Virtual audio devices — for the Microsoft Teams connection
+VB-Cable — lets Riri's voice get treated as your Teams microphone
+BlackHole — lets Riri listen in on what's playing in the Teams call (since Macs don't have a built-in way to "capture what's currently playing")
+macOS's own Audio MIDI Setup tool (built into the Mac, not a separate install) — used to combine your real speakers + BlackHole into one so you can hear the call and Riri can listen to it at the same time
+Data storage — no database, just files
+Excel files (via a library called openpyxl) — where every task update actually gets saved: one file logs every single update in order, another keeps a running weekly-style grid of who said what on which day
+Plain text/JSON files on your Mac — the team roster, the list of team-specific words/names, and a memory file of past real tasks used as reference for the "is this real" check
+In short: one AI model doing the actual thinking (Qwen3-4B), one model for turning speech into text (Whisper), one model for turning text into speech (Kokoro), one small model for detecting when you're talking (Silero VAD), and everything else — name matching, saving files, deciding what to say for routine moments — is plain code with no AI involved at all.
+
+riri flow you explained earlier explain where all of these tech parts are being used also can you point out the constraints due to which we took some of the decisions like we are already running the model looking locally it becomes really slow to process the whole to complete the whole process to explain all the so for decision what he was taking explain why that specific decision was taken
+Show more
+Riri's Flow — With the Actual Tools Marked, and Why Each Decision Was Made
+Step 1: Voice → Text
+Tools used: sounddevice (captures raw mic audio) → Silero VAD (decides when you start/stop talking) → faster-whisper large-v3-turbo (turns speech into text)
+
+The constraint that shaped this: Everything here has to run on your Mac's CPU, in real time, while also running a whole language model at the same time. There's no cloud service doing the heavy lifting — no internet round-trip, but also no borrowed processing power. On a machine this constrained, the choice of which Whisper model matters a lot:
+
+We picked large-v3-turbo instead of the biggest, most accurate large-v3 specifically because it's noticeably faster while losing only a small amount of accuracy — the README's own benchmark showed roughly 3 seconds vs 4 seconds transcribing the same clip on this machine's CPU. In a live meeting, every second of lag between "you stopped talking" and "Riri responds" is felt directly, so we leaned toward speed. The larger model is still available as a manual override (STT_HIGH_ACCURACY=1) for a noisy room or a name-heavy meeting, but it's not the default because most of the time it's not worth the extra wait.
+The VAD (Silero) exists at all because without it, Riri would either need you to press a button to say "I'm done talking," or she'd have to guess based on a fixed timer — both worse. But VAD running locally, in real time, alongside everything else, is itself a CPU cost, so it's a genuinely light, small model rather than a heavier alternative — it needs to be cheap enough to run continuously without competing for resources with the LLM.
+Step 2: Deciding what you meant
+Tools used: mostly plain code (pattern matching against known phrasings) — no AI model for this step, except in rare fallback cases where it calls the local LLM (Qwen3-4B)
+
+The constraint that shaped this: this is the single biggest performance decision in the whole system, and it's directly downstream of running the LLM locally instead of in the cloud.
+
+Here's the real problem: a cloud AI service (like the DeepSeek API this project was originally built around) responds in maybe half a second to a second, because it's running on serious dedicated hardware somewhere else. A 4-billion-parameter model running locally on a laptop's chip is dramatically slower per request than that, even with Apple's MLX optimization. If every single sentence in the meeting — "skip", "who's next", "mark him on leave", a plain task answer — had to go through a full LLM call, the meeting would feel sluggish and unnatural; you'd be waiting a beat after every sentence for the AI to "think," even for things that don't need thinking at all.
+
+So the decision was: handle everything predictable with instant, zero-cost pattern matching, and only escalate to the actual LLM for the small number of situations that genuinely can't be handled that way (mainly: interpreting an unpredictable mid-sentence interruption). This is a direct workaround for local-model latency — if this were still running against a fast cloud API, this two-tier system would matter far less, because even the "just ask the AI every time" approach would feel acceptably fast.
+
+Step 3: The "is this actually real" Task Sense Check
+Tools used: the local LLM (Qwen3-4B) — same model as everywhere else, just asked a different kind of question
+
+The constraint that shaped this: this is one of the few places where we do pay the cost of a real LLM call on every single task update, and that was a deliberate decision, not an oversight. Task accuracy matters more here than speed, because a wrongly-saved task is a worse outcome than an extra second of latency — this is the one place slowness is an acceptable price. Everywhere else in the system, we designed around avoiding LLM calls specifically because local models are slow; here we accepted the slowness because getting it wrong (saving garbage as someone's real task, or losing a real task because of noise) is worse than a short delay.
+
+The hard safety rules on top of this (never trust a VALID_* verdict if the transcription itself was low-confidence, never trust a malformed AI response) exist for a related reason: a local 4B model is meaningfully less capable than a large cloud model. It's good, but it's not as robust — malformed JSON responses, questionable judgment calls, etc. are more likely with a smaller local model than with the biggest cloud models. Wrapping it in deterministic override rules is a direct compensation for choosing a small, fast, locally-runnable model over a bigger, more expensive cloud one.
+
+Step 4: Name matching
+Tools used: plain Python text comparison (difflib) — no AI at all
+
+The constraint that shaped this: this one isn't really about speed — it's about reliability. An AI model, even a good one, can occasionally get creative or inconsistent. Matching a person's name to the correct team member is exactly the kind of decision where you want the same input to always produce the same output, with zero risk of the AI "interpreting" a name into someone else. So this was kept as boring, predictable code specifically to avoid AI unpredictability in a spot where a mistake (marking the wrong person absent) is a real, tangible error, not just an awkward phrasing.
+
+Step 5: Deciding what Riri actually says
+Tools used: pre-written phrase banks (plain text, no AI) for routine lines, plus the local LLM (Qwen3-4B) for open-ended chat and judgment calls; final spoken audio through Kokoro TTS
+
+The constraint that shaped this: same local-speed problem as Step 2. Generating a brand-new sentence with an LLM for every single routine moment ("thanks, moving to the next person") would mean paying LLM latency on literally every turn, all meeting long. So instead, those lines are written once, with a few random variations, and reused — genuinely zero latency, since there's no model call at all. The LLM is reserved for the moments that actually need it: free-flowing chat before the meeting starts, and task-related judgment calls.
+
+There's a second local-performance trick layered on top: the TTS caching system. Every one of those routine phrase-bank lines gets synthesized into actual audio once, ahead of time, right when Riri starts up (this is the "warming the cache" step you may have seen scroll by). After that, replaying any of those lines is close to instant — reading a pre-made audio file instead of generating speech from scratch. This exists because speech synthesis, like everything else running locally, isn't instantaneous — doing it live for a repeated phrase like "got it, thanks" every single time would be wasted work when the exact same audio was already generated once before.
+
+Step 6: The mic-echo / interruption problem
+Constraint, not really a tool decision: this one isn't about speed at all — it's a hardware limitation. Interrupting Riri mid-sentence requires the system to tell the difference between "the user is talking" and "Riri's own voice, played through the speaker, is bouncing back into the microphone." Professional video-call software solves this with something called acoustic echo cancellation (AEC) — dedicated logic that subtracts the known output signal from the input signal in real time. This Mac's setup doesn't have that wired in for this use case, and we measured it directly: Riri's own voice registers as "100% definitely speech" to the detector, completely indistinguishable from a real interruption. No amount of adjusting sensitivity fixes that, because the signal genuinely looks identical either way. So the decision was to just turn interruption-detection off rather than have it constantly misfire — a real capability we're giving up, but the alternative (constant false interruptions) was worse than no interruptions at all.
+
+Step 7: Getting Riri into a Microsoft Teams call
+Tools used: VB-Cable (lets her voice be treated as a microphone) and BlackHole + Mac's built-in Audio MIDI Setup (lets her hear the call)
+
+The constraint that shaped this: this software was originally built for Windows, which has a built-in feature (called WASAPI loopback) letting an app directly "listen to whatever is currently playing" with no extra tools. Macs simply don't have that feature at the operating-system level — it doesn't exist here, full stop. So on Windows, hearing the call needed zero extra software; on this Mac, we had to install a second virtual device (BlackHole) and manually build a small audio-routing setup to recreate the same capability that Windows gives for free. That's not a design choice we made for style — it's a real gap in what macOS offers, and BlackHole plus the Multi-Output Device setup is the standard, well-known way people work around that gap on a Mac.
+
+Step 8: Why the Python version had to change
+Constraint: Kokoro (the voice model) depends on a specific version of a supporting library that, in turn, needs a specific version of numpy that simply doesn't have a build available for the newest Python version installed on this Mac (3.13). Trying to force it caused the underlying numpy code to fail compiling from scratch. Rather than fight that compatibility gap, we just built the whole project on the older, fully-supported Python 3.12 instead — a small technical workaround, but one entirely forced by a dependency mismatch rather than any real preference for 3.12.
+
+The pattern across almost every decision
+Nearly every major design choice in this project traces back to one root cause: running everything locally (no cloud AI, no cloud STT, no cloud TTS) trades away raw speed for privacy, cost, and independence from any external service. Local models are meaningfully slower than cloud ones on this hardware, so the whole system is engineered around minimizing how often the slow part (the LLM) gets called at all — using fast, dumb, predictable code wherever possible, and reserving the actual AI thinking for the handful of moments where nothing else could do the job.
+
+hey can you give me a terminal prompt to run riri on my pc withgouht teams
+Let's check the LLM server's still up first.
+
+Bash
+IN
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"mlx-community/Qwen3-4B-Instruct-2507-4bit","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' --max-time 5
+
+OUT
+Exit code 7
+000
+Not running. Two terminals needed:
+
+Terminal 1 — start the local LLM (leave running):
+
+
+cd ~/local-voice-agent && source .venv/bin/activate && python -m mlx_lm server --model mlx-community/Qwen3-4B-Instruct-2507-4bit --host 127.0.0.1 --port 8080
+Terminal 2 — run Riri normally (your own mic/speakers, no Teams):
+
+
+cd "/Users/mayankkumarsingh/Downloads/DSM-agent-main/DSM-agent" && source .venv/bin/activate && python main.py
+Wait for Terminal 1 to print "Starting httpd..." before running Terminal 2. Add --limit N to the second command if you only want the first N roster names called.
+
+dont use db audio and limit to 3
+Bash
+IN
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"mlx-community/Qwen3-4B-Instruct-2507-4bit","messages":[{"role":"user","content":"hi"}],"max_tokens":5}' --max-time 5
+
+OUT
+200
+Good, LLM server's already running. DEBUG_AUDIO is already off by default (it only activates if you explicitly set DEBUG_AUDIO=1 in .env, which we haven't), so no change needed there — just run normally with the roster limited to 3:
+
+
+cd "/Users/mayankkumarsingh/Downloads/DSM-agent-main/DSM-agent" && source .venv/bin/activate && python main.py --limit 3
+Idle 11d 7h. The prompt cache has likely expired, so your next message will re-cache about 392k tokens.
