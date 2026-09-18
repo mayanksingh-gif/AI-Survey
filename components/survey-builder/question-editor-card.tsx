@@ -1,13 +1,14 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, ImageOff, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { QUESTION_TYPE_LABELS } from "@/components/survey-builder/question-type-badge";
 import { QUESTION_TYPES, type BranchingRule, type MediaRef, type SurveyQuestion } from "@/lib/survey/types";
+import { cn } from "@/lib/utils";
 
 interface Props {
   question: SurveyQuestion;
@@ -39,8 +40,19 @@ export function QuestionEditorCard({ question, index, total, allQuestions, study
       ? [{ label: "No", value: "no" }, { label: "Yes", value: "yes" }]
       : question.options;
 
+  // card_choice is the only type where a missing image means the
+  // respondent sees a blank card — surface that on the collapsed card too,
+  // not just once you've opened "Edit options & logic" to find out.
+  const missingImageCount =
+    question.type === "card_choice" ? question.options.filter((o) => !o.imageUrl).length : 0;
+
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div
+      className={cn(
+        "rounded-lg border bg-card",
+        missingImageCount > 0 ? "border-signal/50 bg-signal/5" : "border-border",
+      )}
+    >
       <div className="flex items-start gap-3 p-3">
         <div className="flex flex-col items-center gap-0.5 pt-1 shrink-0">
           <button
@@ -93,6 +105,12 @@ export function QuestionEditorCard({ question, index, total, allQuestions, study
             {!question.required && (
               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">optional</span>
             )}
+            {missingImageCount > 0 && (
+              <span className="flex items-center gap-1 text-[10px] font-medium text-signal uppercase tracking-wide">
+                <ImageOff className="size-3" />
+                {missingImageCount} image{missingImageCount > 1 ? "s" : ""} needed
+              </span>
+            )}
           </div>
           <Textarea
             value={question.text}
@@ -103,9 +121,16 @@ export function QuestionEditorCard({ question, index, total, allQuestions, study
 
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+            className={cn(
+              "mt-2 text-xs hover:text-foreground",
+              missingImageCount > 0 ? "text-signal font-medium" : "text-muted-foreground",
+            )}
           >
-            {expanded ? "Hide details" : "Edit options & logic"}
+            {expanded
+              ? "Hide details"
+              : missingImageCount > 0
+                ? `Upload ${missingImageCount} image${missingImageCount > 1 ? "s" : ""} →`
+                : "Edit options & logic"}
           </button>
 
           {expanded && (
@@ -310,7 +335,12 @@ function OptionsEditor({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">Options</p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-[11px] font-mono uppercase tracking-wide text-muted-foreground">Options</p>
+        {allowImages && (
+          <span className="text-[10px] text-signal">— each option needs an image</span>
+        )}
+      </div>
       {options.map((opt, i) => (
         <div key={i} className="flex items-center gap-1.5">
           {allowImages && (
@@ -318,8 +348,13 @@ function OptionsEditor({
               <button
                 type="button"
                 onClick={() => inputRefs.current[i]?.click()}
-                className="size-8 shrink-0 rounded-md border border-dashed border-border flex items-center justify-center overflow-hidden hover:border-foreground/40 transition-colors"
-                title={opt.imageUrl ? "Replace image" : "Add image"}
+                className={cn(
+                  "shrink-0 rounded-md border flex items-center justify-center overflow-hidden transition-colors",
+                  opt.imageUrl
+                    ? "size-8 border-dashed border-border hover:border-foreground/40"
+                    : "h-8 px-2 gap-1 border-signal/50 bg-signal/10 hover:bg-signal/20",
+                )}
+                title={opt.imageUrl ? "Replace image" : "Upload image (required for this option)"}
               >
                 {uploadingIndex === i ? (
                   <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
@@ -327,7 +362,10 @@ function OptionsEditor({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={opt.imageUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
-                  <Upload className="size-3.5 text-muted-foreground" />
+                  <>
+                    <Upload className="size-3.5 text-signal" />
+                    <span className="text-[10px] font-medium text-signal whitespace-nowrap">Upload image</span>
+                  </>
                 )}
               </button>
               <input
