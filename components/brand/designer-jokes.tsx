@@ -26,7 +26,9 @@ const JOKES = [
 
 export function DesignerJokes({
   className,
-  intervalMs = 3200,
+  // Long enough to actually read a full setup+punchline one-liner
+  // (~90-120 characters) at a comfortable pace, not just glimpse it.
+  intervalMs = 7000,
 }: {
   className?: string;
   intervalMs?: number;

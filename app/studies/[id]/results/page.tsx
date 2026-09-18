@@ -106,7 +106,7 @@ export default function ResultsPage() {
         <InsightsPanel studyId={study.id} hasResponses={hasResponses} />
 
         {hasResponses && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
             <div className="rounded-xl border border-border bg-card p-5">
               <ResponseTrendChart studyId={study.id} />
             </div>
@@ -140,8 +140,14 @@ export default function ResultsPage() {
       </div>
 
       {/* Right column: persistent Ask Your Research, pinned to the viewport
-          height so it scrolls internally instead of growing with the page. */}
-      <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
+          height so it scrolls internally instead of growing with the page.
+          The -mt-8 cancels this wrapper's py-8 top padding so the panel's
+          natural (pre-scroll) top lines up exactly with the sticky header's
+          bottom edge (~93px) — otherwise the extra padding makes the panel
+          taller than the remaining viewport before it ever sticks, so the
+          page scrolls a few px even though the aside is meant to be fixed,
+          and the sticky offset then clips its top edge once it does stick. */}
+      <div className="lg:sticky lg:top-24 lg:-mt-8 lg:h-[calc(100vh-6rem)]">
         <AskYourResearch studyId={study.id} className="h-full" />
       </div>
     </div>
