@@ -24,7 +24,7 @@ const SUGGESTIONS = [
   "What should we investigate next?",
 ];
 
-export function AskYourResearch({ studyId }: { studyId: string }) {
+export function AskYourResearch({ studyId, className }: { studyId: string; className?: string }) {
   const [history, setHistory] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -57,13 +57,13 @@ export function AskYourResearch({ studyId }: { studyId: string }) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card flex flex-col h-full min-h-[420px]">
-      <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+    <div className={cn("rounded-xl border border-border bg-card flex flex-col min-h-0", className)}>
+      <div className="px-4 py-3 border-b border-border flex items-center gap-2 shrink-0">
         <MessageSquareText className="size-4 text-muted-foreground" />
         <p className="text-sm font-medium">Ask Your Research</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-3">
         {history.length === 0 && (
           <div className="text-center py-6">
             <AiLabel className="justify-center mb-2">Grounded in your actual data</AiLabel>
@@ -118,7 +118,7 @@ export function AskYourResearch({ studyId }: { studyId: string }) {
         )}
       </div>
 
-      <div className="p-3 border-t border-border space-y-2">
+      <div className="p-3 border-t border-border space-y-2 shrink-0">
         {history.length === 0 && (
           <div className="flex gap-1.5 flex-wrap">
             {SUGGESTIONS.map((s) => (

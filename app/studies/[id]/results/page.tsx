@@ -139,9 +139,10 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Right column: persistent Ask Your Research */}
-      <div className="lg:sticky lg:top-20">
-        <AskYourResearch studyId={study.id} />
+      {/* Right column: persistent Ask Your Research, pinned to the viewport
+          height so it scrolls internally instead of growing with the page. */}
+      <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)]">
+        <AskYourResearch studyId={study.id} className="h-full" />
       </div>
     </div>
   );
